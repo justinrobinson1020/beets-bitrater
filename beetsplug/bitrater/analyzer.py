@@ -170,11 +170,12 @@ class AudioQualityAnalyzer:
         Expected structure:
             training_dir/
             ├── 128/      # Files encoded at 128 kbps (class 0)
-            ├── 192/      # Files encoded at 192 kbps (class 1)
-            ├── 256/      # Files encoded at 256 kbps (class 2)
-            ├── 320/      # Files encoded at 320 kbps (class 3)
-            ├── v0/       # VBR-0 files (class 4)
-            └── lossless/ # Lossless files (class 5)
+            ├── v2/       # VBR-2 files (class 1)
+            ├── 192/      # Files encoded at 192 kbps (class 2)
+            ├── v0/       # VBR-0 files (class 3)
+            ├── 256/      # Files encoded at 256 kbps (class 4)
+            ├── 320/      # Files encoded at 320 kbps (class 5)
+            └── lossless/ # Lossless files (class 6)
 
         Args:
             training_dir: Path to training data directory
@@ -190,10 +191,11 @@ class AudioQualityAnalyzer:
         # Map directory names to class labels
         dir_to_class = {
             "128": CLASS_LABELS["128"],
+            "v2": CLASS_LABELS["V2"],
             "192": CLASS_LABELS["192"],
+            "v0": CLASS_LABELS["V0"],
             "256": CLASS_LABELS["256"],
             "320": CLASS_LABELS["320"],
-            "v0": CLASS_LABELS["V0"],
             "lossless": CLASS_LABELS["LOSSLESS"],
         }
 

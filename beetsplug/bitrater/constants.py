@@ -11,18 +11,37 @@ VBR_RANGES = {
     4: (140, 185, 165),  # V4
 }
 
-# Classification classes (6 classes)
+# Classification classes (7 classes)
 BITRATE_CLASSES = {
-    0: ("128", 128),      # CBR 128 kbps
-    1: ("192", 192),      # CBR 192 kbps
-    2: ("256", 256),      # CBR 256 kbps
-    3: ("320", 320),      # CBR 320 kbps
-    4: ("V0", 245),       # VBR-0 (avg ~245 kbps)
-    5: ("LOSSLESS", 1411),  # Lossless (CD quality bitrate)
+    0: ("128", 128),      # CBR 128 kbps - cutoff ~16 kHz
+    1: ("V2", 190),       # VBR-2 (avg ~190 kbps) - cutoff ~18.5 kHz
+    2: ("192", 192),      # CBR 192 kbps - cutoff ~19 kHz
+    3: ("V0", 245),       # VBR-0 (avg ~245 kbps) - cutoff ~19.5 kHz
+    4: ("256", 256),      # CBR 256 kbps - cutoff ~20 kHz
+    5: ("320", 320),      # CBR 320 kbps - cutoff ~20.5 kHz
+    6: ("LOSSLESS", 1411),  # Lossless (CD quality) - cutoff >21.5 kHz
 }
 
 # Reverse lookup: format name to class index
 CLASS_LABELS = {name: idx for idx, (name, _) in BITRATE_CLASSES.items()}
+
+# Quality ranking for transcode detection (higher = better quality)
+QUALITY_RANK = {name: idx for idx, (name, _) in BITRATE_CLASSES.items()}
+# Result: {"128": 0, "V2": 1, "192": 2, "V0": 3, "256": 4, "320": 5, "LOSSLESS": 6}
+
+# Expected cutoff frequencies (Hz) for each class
+CLASS_CUTOFFS = {
+    "128": 16000,
+    "V2": 18500,
+    "192": 19000,
+    "V0": 19500,
+    "256": 20000,
+    "320": 20500,
+    "LOSSLESS": 22050,
+}
+
+# Cutoff detection tolerance (Hz)
+CUTOFF_TOLERANCE = 500
 
 # Spectral analysis parameters - extended for lossless detection
 SPECTRAL_PARAMS = {

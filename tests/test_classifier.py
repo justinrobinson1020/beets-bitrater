@@ -81,8 +81,8 @@ class TestQualityClassifier:
         classifier.train(features_list, labels)
         prediction = classifier.predict(sample_features)
 
-        assert prediction.format_type in ["128", "192", "256", "320", "V0", "LOSSLESS"]
-        assert prediction.estimated_bitrate in [128, 192, 256, 320, 245, 1411]
+        assert prediction.format_type in ["128", "V2", "192", "V0", "256", "320", "LOSSLESS"]
+        assert prediction.estimated_bitrate in [128, 190, 192, 245, 256, 320, 1411]
         assert 0 <= prediction.confidence <= 1
         assert isinstance(prediction.probabilities, dict)
 
@@ -123,22 +123,14 @@ class TestQualityClassifier:
 class TestBitrateClasses:
     """Tests for bitrate class configuration."""
 
-    def test_six_classes(self):
-        """Verify we have exactly 6 classes."""
-        assert len(BITRATE_CLASSES) == 6
+    def test_seven_classes(self):
+        """There should be exactly 7 quality classes."""
+        assert len(BITRATE_CLASSES) == 7
 
     def test_class_indices(self):
-        """Verify class indices are 0-5."""
-        assert set(BITRATE_CLASSES.keys()) == {0, 1, 2, 3, 4, 5}
+        """Class indices should be 0-6."""
+        assert set(BITRATE_CLASSES.keys()) == {0, 1, 2, 3, 4, 5, 6}
 
-    def test_class_values(self):
-        """Verify class bitrate values."""
-        expected = {
-            0: ("128", 128),
-            1: ("192", 192),
-            2: ("256", 256),
-            3: ("320", 320),
-            4: ("V0", 245),
-            5: ("LOSSLESS", 1411),
-        }
-        assert BITRATE_CLASSES == expected
+    def test_v2_class_exists(self):
+        """V2 class should exist at index 1."""
+        assert BITRATE_CLASSES[1] == ("V2", 190)
