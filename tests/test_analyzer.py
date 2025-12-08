@@ -177,6 +177,9 @@ class TestAnalysisResult:
             original_bitrate=320,
             confidence=0.95,
             is_transcode=False,
+            stated_class="320",
+            detected_cutoff=20500,
+            quality_gap=0,
             stated_bitrate=320,
         )
 
@@ -187,6 +190,9 @@ class TestAnalysisResult:
         assert summary["original_bitrate"] == 320
         assert summary["confidence"] == 0.95
         assert summary["is_transcode"] is False
+        assert summary["stated_class"] == "320"
+        assert summary["detected_cutoff"] == 20500
+        assert summary["quality_gap"] == 0
 
     def test_transcode_result(self):
         """Test AnalysisResult for a transcoded file."""
@@ -197,6 +203,9 @@ class TestAnalysisResult:
             original_bitrate=128,
             confidence=0.92,
             is_transcode=True,
+            stated_class="LOSSLESS",
+            detected_cutoff=16000,
+            quality_gap=6,
             transcoded_from="128",
             stated_bitrate=None,
         )
@@ -204,3 +213,55 @@ class TestAnalysisResult:
         assert result.is_transcode is True
         assert result.transcoded_from == "128"
         assert result.file_format == "flac"
+        assert result.stated_class == "LOSSLESS"
+        assert result.detected_cutoff == 16000
+        assert result.quality_gap == 6
+
+
+class TestAnalysisResultFields:
+    """Test new AnalysisResult fields for transcode detection."""
+
+    def test_has_stated_class_field(self):
+        """AnalysisResult should have stated_class field."""
+        result = AnalysisResult(
+            filename="test.flac",
+            file_format="flac",
+            original_format="192",
+            original_bitrate=192,
+            confidence=0.9,
+            is_transcode=True,
+            stated_class="LOSSLESS",
+            detected_cutoff=19000,
+            quality_gap=4,
+        )
+        assert result.stated_class == "LOSSLESS"
+
+    def test_has_detected_cutoff_field(self):
+        """AnalysisResult should have detected_cutoff field."""
+        result = AnalysisResult(
+            filename="test.mp3",
+            file_format="mp3",
+            original_format="320",
+            original_bitrate=320,
+            confidence=0.9,
+            is_transcode=False,
+            stated_class="320",
+            detected_cutoff=20500,
+            quality_gap=0,
+        )
+        assert result.detected_cutoff == 20500
+
+    def test_has_quality_gap_field(self):
+        """AnalysisResult should have quality_gap field."""
+        result = AnalysisResult(
+            filename="test.flac",
+            file_format="flac",
+            original_format="128",
+            original_bitrate=128,
+            confidence=0.85,
+            is_transcode=True,
+            stated_class="LOSSLESS",
+            detected_cutoff=16000,
+            quality_gap=6,  # LOSSLESS(6) - 128(0) = 6
+        )
+        assert result.quality_gap == 6

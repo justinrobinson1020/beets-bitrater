@@ -52,19 +52,22 @@ class AnalysisResult:
     file_format: str  # Actual container: "mp3", "flac", "wav"
 
     # Classification results
-    original_format: str  # "128", "192", "256", "320", "V0", "LOSSLESS"
-    original_bitrate: int  # 128, 192, 256, 320, 245 (V0 avg), or 1411 (CD)
-    confidence: float  # SVM decision confidence
+    original_format: str  # "128", "V2", "192", "V0", "256", "320", "LOSSLESS"
+    original_bitrate: int  # 128, 190, 192, 245, 256, 320, or 1411
+    confidence: float  # Final confidence after penalties
 
     # Transcode detection
-    is_transcode: bool  # True if lossless container but lossy content detected
-    transcoded_from: Optional[str] = None  # e.g., "128" if FLAC contains 128 kbps content
+    is_transcode: bool  # True if stated_rank > detected_rank
+    stated_class: str  # What file claims to be: "320", "LOSSLESS", etc.
+    detected_cutoff: int  # Detected cutoff frequency in Hz
+    quality_gap: int  # Difference in quality ranks (0-6)
+    transcoded_from: Optional[str] = None  # e.g., "128" if transcoded
 
     # Metadata comparison
     stated_bitrate: Optional[int] = None  # What the file metadata claims
 
     # Analysis metadata
-    analysis_version: str = "3.0"
+    analysis_version: str = "4.0"  # Updated version
     analysis_date: datetime = field(default_factory=datetime.now)
     warnings: List[str] = field(default_factory=list)
 
@@ -77,6 +80,9 @@ class AnalysisResult:
             "original_bitrate": self.original_bitrate,
             "confidence": self.confidence,
             "is_transcode": self.is_transcode,
+            "stated_class": self.stated_class,
+            "detected_cutoff": self.detected_cutoff,
+            "quality_gap": self.quality_gap,
             "transcoded_from": self.transcoded_from,
             "stated_bitrate": self.stated_bitrate,
             "warnings": self.warnings,

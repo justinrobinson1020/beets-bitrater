@@ -66,13 +66,17 @@ class AudioQualityAnalyzer:
         # 3. Classify (if model is trained)
         if not self.classifier.trained:
             logger.warning("Classifier not trained - returning features without classification")
+            file_format = path.suffix.lower().lstrip(".")
             return AnalysisResult(
                 filename=str(path),
-                file_format=path.suffix.lower().lstrip("."),
+                file_format=file_format,
                 original_format="UNKNOWN",
                 original_bitrate=0,
                 confidence=0.0,
                 is_transcode=False,
+                stated_class="UNKNOWN",
+                detected_cutoff=0,
+                quality_gap=0,
                 stated_bitrate=metadata.bitrate if metadata else None,
                 warnings=["Classifier not trained"],
             )
@@ -104,6 +108,9 @@ class AudioQualityAnalyzer:
             original_bitrate=prediction.estimated_bitrate,
             confidence=prediction.confidence,
             is_transcode=is_transcode,
+            stated_class="LOSSLESS" if is_lossless_container else prediction.format_type,
+            detected_cutoff=0,  # Placeholder - will be updated in Task 11
+            quality_gap=0,  # Placeholder - will be calculated properly in Task 9
             transcoded_from=transcoded_from,
             stated_bitrate=metadata.bitrate if metadata else None,
             warnings=warnings,
