@@ -51,3 +51,44 @@ class CutoffDetector:
         self.fine_step = fine_step
         self.window_size = window_size
         self.sharp_threshold = sharp_threshold
+
+    def _coarse_scan(self, psd: np.ndarray, freqs: np.ndarray) -> int:
+        """
+        Perform coarse scan to find approximate cutoff region.
+
+        Uses sliding window band ratio comparison at 1 kHz intervals.
+
+        Args:
+            psd: Power spectral density array
+            freqs: Corresponding frequency array (Hz)
+
+        Returns:
+            Candidate cutoff frequency (Hz)
+        """
+        best_ratio = 1.0
+        best_freq = self.max_freq
+
+        for candidate_freq in range(self.min_freq, self.max_freq, self.coarse_step):
+            # Window below candidate
+            below_mask = (freqs >= candidate_freq - self.window_size) & (freqs < candidate_freq)
+            # Window above candidate
+            above_mask = (freqs >= candidate_freq) & (freqs < candidate_freq + self.window_size)
+
+            if not np.any(below_mask) or not np.any(above_mask):
+                continue
+
+            energy_below = np.mean(psd[below_mask])
+            energy_above = np.mean(psd[above_mask])
+
+            # Avoid division by zero
+            if energy_below < 1e-10:
+                continue
+
+            ratio = energy_above / energy_below
+
+            # Find where ratio drops most dramatically
+            if ratio < best_ratio:
+                best_ratio = ratio
+                best_freq = candidate_freq
+
+        return best_freq
