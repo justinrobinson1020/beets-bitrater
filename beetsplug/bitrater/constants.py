@@ -1,0 +1,65 @@
+"""Constants used throughout the bitrater plugin."""
+
+# Bitrate classifications
+CBR_BITRATES = [128, 192, 256, 320]  # kbps
+VBR_PRESETS = [0]  # VBR preset levels (only V0 for now)
+
+# VBR bitrate ranges and averages
+VBR_RANGES = {
+    0: (220, 260, 245),  # (min, max, average) in kbps - V0
+    2: (170, 210, 190),  # V2
+    4: (140, 185, 165),  # V4
+}
+
+# Classification classes (6 classes)
+BITRATE_CLASSES = {
+    0: ("128", 128),      # CBR 128 kbps
+    1: ("192", 192),      # CBR 192 kbps
+    2: ("256", 256),      # CBR 256 kbps
+    3: ("320", 320),      # CBR 320 kbps
+    4: ("V0", 245),       # VBR-0 (avg ~245 kbps)
+    5: ("LOSSLESS", 1411),  # Lossless (CD quality bitrate)
+}
+
+# Reverse lookup: format name to class index
+CLASS_LABELS = {name: idx for idx, (name, _) in BITRATE_CLASSES.items()}
+
+# Spectral analysis parameters - extended for lossless detection
+SPECTRAL_PARAMS = {
+    "min_freq": 16000,   # Paper's starting frequency (Hz)
+    "max_freq": 22050,   # Extended to Nyquist for lossless detection (Hz)
+    "num_bands": 150,    # 100 (paper) + 50 (ultrasonic extension)
+    "fft_size": 8192,    # FFT window size
+}
+
+# SVM parameters from D'Alessandro & Shi paper (97% accuracy)
+CLASSIFIER_PARAMS = {
+    "kernel": "poly",
+    "degree": 2,       # d=2 from paper - CRITICAL
+    "gamma": 1,        # γ=1 from paper
+    "C": 1,            # C=1 from paper
+    "coef0": 1,        # Standard for polynomial kernel
+    "probability": True,  # For confidence scores
+    "cache_size": 1000,
+    "class_weight": "balanced",
+    "random_state": 42,
+}
+
+# Lossless container formats
+LOSSLESS_CONTAINERS = {"flac", "wav", "alac", "ape", "wv", "aiff"}
+
+# Lossy container formats
+LOSSY_CONTAINERS = {"mp3", "aac", "ogg", "opus", "m4a", "wma"}
+
+# Encoder signatures for detection
+ENCODER_SIGNATURES = {
+    "LAME": ["LAME", "Lavf"],
+    "FhG": ["FhG"],
+    "Xing": ["Xing"],
+    "Fraunhofer": ["Fraunhofer"],
+    "BladeEnc": ["BladeEnc"],
+}
+
+# Minimum requirements
+MINIMUM_SAMPLE_RATE = 44100  # Need at least 44.1kHz for spectral analysis
+MINIMUM_DURATION = 0.1  # At least 100ms of audio
