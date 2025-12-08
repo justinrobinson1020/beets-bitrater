@@ -133,3 +133,50 @@ class CutoffDetector:
                 best_freq = candidate_freq
 
         return best_freq
+
+    def _measure_gradient(self, psd: np.ndarray, freqs: np.ndarray, cutoff: int) -> float:
+        """
+        Measure gradient sharpness at the cutoff frequency.
+
+        Calculates the slope of energy decline across the transition.
+        Sharp gradients indicate artificial MP3 cutoffs.
+        Gradual gradients suggest natural rolloff (old recordings, etc).
+
+        Args:
+            psd: Power spectral density array
+            freqs: Corresponding frequency array (Hz)
+            cutoff: Detected cutoff frequency (Hz)
+
+        Returns:
+            Gradient value (higher = sharper cutoff)
+        """
+        # Sample points 500 Hz below and above cutoff
+        below_point = cutoff - 500
+        above_point = cutoff + 500
+
+        # Find energy at these points (average over small window)
+        window = 200  # Hz
+
+        below_mask = (freqs >= below_point - window/2) & (freqs < below_point + window/2)
+        above_mask = (freqs >= above_point - window/2) & (freqs < above_point + window/2)
+
+        if not np.any(below_mask) or not np.any(above_mask):
+            return 0.0
+
+        energy_below = np.mean(psd[below_mask])
+        energy_above = np.mean(psd[above_mask])
+
+        # Avoid log of zero
+        if energy_below < 1e-10 or energy_above < 1e-10:
+            if energy_below > energy_above:
+                return 1.0  # Maximum sharpness
+            return 0.0
+
+        # Calculate gradient in dB per kHz
+        db_drop = 10 * np.log10(energy_below / energy_above)
+        gradient = db_drop / 1.0  # Per 1 kHz (1000 Hz span)
+
+        # Normalize to 0-1 range (30 dB drop = 1.0)
+        normalized = min(1.0, max(0.0, gradient / 30.0))
+
+        return normalized

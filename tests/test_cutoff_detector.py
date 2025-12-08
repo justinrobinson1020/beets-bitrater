@@ -59,3 +59,30 @@ class TestCutoffDetector:
 
         # Should refine to within 200 Hz of actual cutoff
         assert 16000 <= refined <= 16400
+
+    def test_gradient_sharp_for_artificial_cutoff(self):
+        """Sharp artificial cutoff should have high gradient."""
+        detector = CutoffDetector()
+
+        # Sharp step function at 16 kHz
+        freqs = np.linspace(0, 22050, 4096)
+        psd = np.ones_like(freqs)
+        psd[freqs > 16000] = 0.001  # Instant drop
+
+        gradient = detector._measure_gradient(psd, freqs, 16000)
+
+        assert gradient > detector.sharp_threshold
+
+    def test_gradient_gradual_for_natural_rolloff(self):
+        """Natural gradual rolloff should have low gradient."""
+        detector = CutoffDetector()
+
+        # Gradual rolloff - exponential decay starting at 14 kHz
+        freqs = np.linspace(0, 22050, 4096)
+        psd = np.ones_like(freqs)
+        rolloff_mask = freqs > 14000
+        psd[rolloff_mask] = np.exp(-0.0005 * (freqs[rolloff_mask] - 14000))
+
+        gradient = detector._measure_gradient(psd, freqs, 16000)
+
+        assert gradient < detector.sharp_threshold
