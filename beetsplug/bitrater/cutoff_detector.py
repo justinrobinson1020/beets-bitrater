@@ -180,3 +180,35 @@ class CutoffDetector:
         normalized = min(1.0, max(0.0, gradient / 30.0))
 
         return normalized
+
+    def detect(self, psd: np.ndarray, freqs: np.ndarray) -> CutoffResult:
+        """
+        Detect cutoff frequency using coarse-to-fine scanning.
+
+        Args:
+            psd: Power spectral density array
+            freqs: Corresponding frequency array (Hz)
+
+        Returns:
+            CutoffResult with detected frequency and sharpness info
+        """
+        # Step 1: Coarse scan
+        coarse_cutoff = self._coarse_scan(psd, freqs)
+
+        # Step 2: Fine scan
+        refined_cutoff = self._fine_scan(psd, freqs, coarse_cutoff)
+
+        # Step 3: Measure gradient
+        gradient = self._measure_gradient(psd, freqs, refined_cutoff)
+        is_sharp = gradient > self.sharp_threshold
+
+        # Step 4: Calculate confidence based on how clear the cutoff is
+        # Higher gradient = clearer cutoff = higher confidence
+        confidence = min(1.0, gradient + 0.3) if is_sharp else 0.5
+
+        return CutoffResult(
+            cutoff_frequency=refined_cutoff,
+            gradient=gradient,
+            is_sharp=is_sharp,
+            confidence=confidence,
+        )

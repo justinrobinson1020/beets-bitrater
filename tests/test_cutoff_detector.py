@@ -86,3 +86,29 @@ class TestCutoffDetector:
         gradient = detector._measure_gradient(psd, freqs, 16000)
 
         assert gradient < detector.sharp_threshold
+
+    def test_detect_128kbps_cutoff(self):
+        """Detect should identify 128 kbps cutoff at ~16 kHz."""
+        detector = CutoffDetector()
+
+        freqs = np.linspace(0, 22050, 4096)
+        psd = np.ones_like(freqs)
+        psd[freqs > 16000] = 0.001
+
+        result = detector.detect(psd, freqs)
+
+        assert isinstance(result, CutoffResult)
+        assert 15500 <= result.cutoff_frequency <= 16500
+        assert result.is_sharp is True  # Artificial cutoff
+        assert 0.0 <= result.confidence <= 1.0
+
+    def test_detect_lossless_no_cutoff(self):
+        """Detect should identify lossless with cutoff > 21.5 kHz."""
+        detector = CutoffDetector()
+
+        freqs = np.linspace(0, 22050, 4096)
+        psd = np.ones_like(freqs)  # Full spectrum, no cutoff
+
+        result = detector.detect(psd, freqs)
+
+        assert result.cutoff_frequency > 21000
