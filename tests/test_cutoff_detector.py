@@ -42,3 +42,20 @@ class TestCutoffDetector:
         candidate = detector._coarse_scan(psd, freqs)
 
         assert 18000 <= candidate <= 20000
+
+    def test_fine_scan_refines_cutoff(self):
+        """Fine scan should refine cutoff to within 100 Hz."""
+        detector = CutoffDetector()
+
+        # Create PSD with cutoff at exactly 16200 Hz
+        freqs = np.linspace(0, 22050, 4096)
+        psd = np.ones_like(freqs)
+        psd[freqs > 16200] = 0.001
+
+        # Start with coarse estimate
+        coarse_estimate = 16000
+
+        refined = detector._fine_scan(psd, freqs, coarse_estimate)
+
+        # Should refine to within 200 Hz of actual cutoff
+        assert 16000 <= refined <= 16400

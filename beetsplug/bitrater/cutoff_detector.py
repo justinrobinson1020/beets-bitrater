@@ -92,3 +92,44 @@ class CutoffDetector:
                 best_freq = candidate_freq
 
         return best_freq
+
+    def _fine_scan(self, psd: np.ndarray, freqs: np.ndarray, coarse_estimate: int) -> int:
+        """
+        Refine cutoff estimate with fine-grained scan.
+
+        Scans ±500 Hz around coarse estimate at 100 Hz intervals.
+
+        Args:
+            psd: Power spectral density array
+            freqs: Corresponding frequency array (Hz)
+            coarse_estimate: Result from coarse scan (Hz)
+
+        Returns:
+            Refined cutoff frequency (Hz)
+        """
+        search_start = max(self.min_freq, coarse_estimate - 500)
+        search_end = min(self.max_freq, coarse_estimate + 500)
+
+        best_ratio = 1.0
+        best_freq = coarse_estimate
+
+        for candidate_freq in range(search_start, search_end, self.fine_step):
+            below_mask = (freqs >= candidate_freq - self.window_size) & (freqs < candidate_freq)
+            above_mask = (freqs >= candidate_freq) & (freqs < candidate_freq + self.window_size)
+
+            if not np.any(below_mask) or not np.any(above_mask):
+                continue
+
+            energy_below = np.mean(psd[below_mask])
+            energy_above = np.mean(psd[above_mask])
+
+            if energy_below < 1e-10:
+                continue
+
+            ratio = energy_above / energy_below
+
+            if ratio < best_ratio:
+                best_ratio = ratio
+                best_freq = candidate_freq
+
+        return best_freq
