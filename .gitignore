@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Misc
+.DS_Store
+
+# AI dev tools
+.claude/
+.serena/
+.worktrees/
+.mcp.json
+CLAUDE.md
+
+# Development docs and research papers
+docs/
+documents/
+images/
+
+# Training data (large files, user-provided)
+training_data/lossless/
+training_data/encoded/
+training_data/cache/
+training_data/analysis_results/
+training_data/logs/
+
+# Log files
+encoding_log_*.txt
+*.log
+
+# VS Code workspace
+*.code-workspace
