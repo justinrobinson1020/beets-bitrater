@@ -1,12 +1,11 @@
 """Tests for quality classifier."""
 
-import pytest
+
 import numpy as np
-from pathlib import Path
+import pytest
 
 from beetsplug.bitrater.classifier import QualityClassifier
-from beetsplug.bitrater.types import SpectralFeatures
-from beetsplug.bitrater.constants import BITRATE_CLASSES, CLASSIFIER_PARAMS
+from beetsplug.bitrater.constants import BITRATE_CLASSES
 
 
 class TestQualityClassifier:

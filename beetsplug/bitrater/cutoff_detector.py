@@ -1,9 +1,10 @@
 """Cutoff frequency detection for transcode validation."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
+
+from .constants import ENERGY_EPSILON, GRADIENT_NORMALIZATION_DB, GRADIENT_WINDOW_HZ
 
 
 @dataclass
@@ -81,7 +82,7 @@ class CutoffDetector:
             energy_above = np.mean(psd[above_mask])
 
             # Avoid division by zero
-            if energy_below < 1e-10:
+            if energy_below < ENERGY_EPSILON:
                 continue
 
             ratio = energy_above / energy_below
@@ -123,7 +124,7 @@ class CutoffDetector:
             energy_below = np.mean(psd[below_mask])
             energy_above = np.mean(psd[above_mask])
 
-            if energy_below < 1e-10:
+            if energy_below < ENERGY_EPSILON:
                 continue
 
             ratio = energy_above / energy_below
@@ -155,7 +156,7 @@ class CutoffDetector:
         above_point = cutoff + 500
 
         # Find energy at these points (average over small window)
-        window = 200  # Hz
+        window = GRADIENT_WINDOW_HZ
 
         below_mask = (freqs >= below_point - window/2) & (freqs < below_point + window/2)
         above_mask = (freqs >= above_point - window/2) & (freqs < above_point + window/2)
@@ -167,7 +168,7 @@ class CutoffDetector:
         energy_above = np.mean(psd[above_mask])
 
         # Avoid log of zero
-        if energy_below < 1e-10 or energy_above < 1e-10:
+        if energy_below < ENERGY_EPSILON or energy_above < ENERGY_EPSILON:
             if energy_below > energy_above:
                 return 1.0  # Maximum sharpness
             return 0.0
@@ -176,8 +177,8 @@ class CutoffDetector:
         db_drop = 10 * np.log10(energy_below / energy_above)
         gradient = db_drop / 1.0  # Per 1 kHz (1000 Hz span)
 
-        # Normalize to 0-1 range (30 dB drop = 1.0)
-        normalized = min(1.0, max(0.0, gradient / 30.0))
+        # Normalize to 0-1 range
+        normalized = min(1.0, max(0.0, gradient / GRADIENT_NORMALIZATION_DB))
 
         return normalized
 

@@ -1,6 +1,6 @@
 """Tests for transcode detection logic."""
 
-
+from beetsplug.bitrater.constants import QUALITY_RANK
 from beetsplug.bitrater.transcode_detector import TranscodeDetector
 
 
@@ -16,8 +16,9 @@ class TestTranscodeDetector:
             detected_class="128",
         )
 
+        expected_gap = QUALITY_RANK["LOSSLESS"] - QUALITY_RANK["128"]
         assert result.is_transcode is True
-        assert result.quality_gap == 6  # LOSSLESS(6) - 128(0)
+        assert result.quality_gap == expected_gap
         assert result.transcoded_from == "128"
 
     def test_mp3_320_from_192_is_transcode(self):
@@ -29,8 +30,9 @@ class TestTranscodeDetector:
             detected_class="192",
         )
 
+        expected_gap = QUALITY_RANK["320"] - QUALITY_RANK["192"]
         assert result.is_transcode is True
-        assert result.quality_gap == 3  # 320(5) - 192(2)
+        assert result.quality_gap == expected_gap
         assert result.transcoded_from == "192"
 
     def test_genuine_320_is_not_transcode(self):

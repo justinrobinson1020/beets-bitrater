@@ -1,7 +1,6 @@
 """Confidence calculation with penalty system."""
 
 from dataclasses import dataclass, field
-from typing import List
 
 from .constants import CLASS_CUTOFFS, CUTOFF_TOLERANCE
 
@@ -13,7 +12,7 @@ class ConfidenceResult:
     final_confidence: float
     mismatch_penalty: float
     gradient_penalty: float
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 class ConfidenceCalculator:
@@ -63,7 +62,7 @@ class ConfidenceCalculator:
         Returns:
             ConfidenceResult with final confidence and warnings
         """
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         # Calculate mismatch penalty
         mismatch_penalty = self._calculate_mismatch_penalty(
@@ -88,7 +87,7 @@ class ConfidenceCalculator:
         self,
         detected_class: str,
         detected_cutoff: int,
-        warnings: List[str],
+        warnings: list[str],
     ) -> float:
         """Calculate penalty for cutoff mismatch."""
         if detected_class not in CLASS_CUTOFFS:
@@ -117,7 +116,7 @@ class ConfidenceCalculator:
     def _calculate_gradient_penalty(
         self,
         gradient: float,
-        warnings: List[str],
+        warnings: list[str],
     ) -> float:
         """Calculate penalty for soft gradient (natural rolloff)."""
         if gradient >= self.sharp_threshold:

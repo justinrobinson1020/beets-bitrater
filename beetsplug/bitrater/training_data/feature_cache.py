@@ -1,17 +1,15 @@
 """Thread-safe cache system with improved concurrency handling."""
 
-import os
+import hashlib
 import json
+import logging
 import queue
 import threading
-import time
-import hashlib
-import logging
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from threading import Lock, RLock
-from typing import Optional, Dict, Any, Tuple
-from copy import deepcopy
+from threading import RLock
+from typing import Any
 
 import numpy as np
 
@@ -19,27 +17,27 @@ logger = logging.getLogger(__name__)
 
 class FeatureCache:
     """Thread-safe manager for caching of extracted spectral features."""
-    
+
     def __init__(self, cache_dir: Path):
         self.cache_dir = Path(cache_dir)
         self.features_dir = self.cache_dir / "features"
         self.metadata_path = self.cache_dir / "cache_metadata.json"
-        self.metadata: Dict[str, Any] = {}
-        
+        self.metadata: dict[str, Any] = {}
+
         # Use RLock instead of Lock to allow recursive locking
         self.metadata_lock = RLock()
-        
+
         # Create update queue and worker thread
         self.update_queue = queue.Queue()
         self.worker_thread = threading.Thread(target=self._metadata_worker, daemon=True)
         self.worker_running = True
-        
+
         # Create cache directories
         self.features_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Load existing metadata
         self._load_metadata()
-        
+
         # Start worker thread
         self.worker_thread.start()
 
@@ -69,7 +67,7 @@ class FeatureCache:
                     update_func = self.update_queue.get(timeout=1.0)
                 except queue.Empty:
                     continue
-                
+
                 # Execute update with timeout
                 try:
                     with self.metadata_lock:
@@ -77,7 +75,7 @@ class FeatureCache:
                     self._save_metadata()
                 finally:
                     self.update_queue.task_done()
-                    
+
             except Exception as e:
                 logger.error(f"Error in metadata worker: {e}")
 
@@ -87,7 +85,7 @@ class FeatureCache:
             with self.metadata_lock:
                 if self.metadata_path.exists():
                     try:
-                        with open(self.metadata_path, 'r') as f:
+                        with open(self.metadata_path) as f:
                             self.metadata = json.load(f)
                     except Exception as e:
                         logger.error(f"Error loading cache metadata: {e}")
@@ -95,33 +93,33 @@ class FeatureCache:
         except Exception as e:
             logger.error(f"Error acquiring lock for metadata load: {e}")
             self.metadata = {}
-            
+
     def _save_metadata(self) -> None:
         """Save cache metadata to disk with timeout."""
         try:
             with self.metadata_lock:
                 metadata_copy = deepcopy(self.metadata)
-                
+
             # Write to temporary file
             temp_path = self.metadata_path.with_suffix('.tmp')
             with open(temp_path, 'w') as f:
                 json.dump(metadata_copy, f, indent=2)
-                
+
             # Atomic rename
             temp_path.replace(self.metadata_path)
-            
+
         except Exception as e:
             logger.error(f"Error saving cache metadata: {e}")
-            
-    def get_features(self, file_path: Path) -> Optional[Tuple[np.ndarray, Dict]]:
+
+    def get_features(self, file_path: Path) -> tuple[np.ndarray, dict] | None:
         """Get cached features with timeout."""
         try:
             file_hash = self._get_file_hash(file_path)
             cache_path = self._get_cache_path(file_hash)
-            
+
             if not cache_path.exists():
                 return None
-                
+
             # Check modification time with timeout
             try:
                 with self.metadata_lock:
@@ -130,34 +128,34 @@ class FeatureCache:
             except Exception as e:
                 logger.error(f"Error checking cache time for {file_path}: {e}")
                 return None
-                
+
             if cache_mtime:
                 file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
                 cache_mtime = datetime.fromisoformat(cache_mtime)
                 if file_mtime > cache_mtime:
                     return None
-                    
+
             # Load features
             with np.load(cache_path, allow_pickle=True) as data:
                 features = data['features']
                 metadata = dict(data['metadata'].item())
-                
+
             return features, metadata
-            
+
         except Exception as e:
             logger.error(f"Error retrieving cached features for {file_path}: {e}")
             return None
-            
+
     def save_features(
-        self, file_path: Path, 
+        self, file_path: Path,
         features: np.ndarray,
-        metadata: Dict
+        metadata: dict
     ) -> None:
         """Save features with queued metadata update."""
         try:
             file_hash = self._get_file_hash(file_path)
             cache_path = self._get_cache_path(file_hash)
-            
+
             # Save feature data
             metadata_arr = np.array(metadata, dtype=object)
             np.savez_compressed(
@@ -165,7 +163,7 @@ class FeatureCache:
                 features=features,
                 metadata=metadata_arr
             )
-            
+
             # Queue metadata update
             def update_metadata():
                 self.metadata[file_hash] = {
@@ -173,12 +171,12 @@ class FeatureCache:
                     'cached_date': datetime.now().isoformat(),
                     'feature_shape': features.shape
                 }
-                
+
             self.update_queue.put(update_metadata)
-            
+
         except Exception as e:
             logger.error(f"Error caching features for {file_path}: {e}")
-            
+
     def clear_cache(self) -> None:
         """Clear cache with queued update."""
         try:
@@ -188,30 +186,30 @@ class FeatureCache:
                     cache_file.unlink()
                 except Exception as e:
                     logger.error(f"Error deleting cache file: {e}")
-                    
+
             # Queue metadata clear
             def clear_metadata():
                 self.metadata = {}
-                
+
             self.update_queue.put(clear_metadata)
             logger.info("Feature cache cleared")
-            
+
         except Exception as e:
             logger.error(f"Error clearing cache: {e}")
-            
-    def get_cache_info(self) -> Dict[str, Any]:
+
+    def get_cache_info(self) -> dict[str, Any]:
         """Get cache info with timeout."""
         try:
             with self.metadata_lock:
                 metadata_values = list(self.metadata.values())
                 total_size = sum(f.stat().st_size for f in self.features_dir.glob("*.npz"))
-                
+
                 last_modified = max(
-                    (datetime.fromisoformat(m['cached_date']) 
+                    (datetime.fromisoformat(m['cached_date'])
                      for m in metadata_values),
                     default=None
                 ) if metadata_values else None
-                
+
                 return {
                     'total_files': len(self.metadata),
                     'total_size_mb': total_size / (1024 * 1024),
@@ -221,7 +219,7 @@ class FeatureCache:
         except Exception as e:
             logger.error(f"Error getting cache info: {e}")
             return {}
-            
+
     def __del__(self):
         """Clean shutdown of worker thread."""
         self.worker_running = False

@@ -1,23 +1,21 @@
 """Script for generating training data by transcoding audio files."""
 
-import os
-import subprocess
-import concurrent.futures
-from pathlib import Path
-import logging
-from datetime import datetime, timedelta
-import shutil
-import unicodedata
-import re
-from typing import List, Tuple, Dict, Optional, Set
-import time
-import hashlib
-import sys
 import argparse
+import concurrent.futures
+import hashlib
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import unicodedata
+from datetime import datetime, timedelta
+from pathlib import Path
 
 # # Add parent directory to Python path to allow absolute imports
 # sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from beetsplug.bitrater.constants import CBR_BITRATES, VBR_PRESETS
 
 # Setup logging
@@ -51,9 +49,9 @@ class AudioEncoder:
         self.executables = self._find_executables()
 
         # Track processed files to avoid duplicates
-        self.processed_files: Set[str] = set()
+        self.processed_files: set[str] = set()
 
-    def _find_executables(self) -> Dict[str, str]:
+    def _find_executables(self) -> dict[str, str]:
         """Find required executable paths."""
         executables = {
             "lame": shutil.which("lame"),
@@ -70,7 +68,7 @@ class AudioEncoder:
 
         return executables
 
-    def process_files(self, max_workers: Optional[int] = None, include_uptranscoding: bool = True) -> None:
+    def process_files(self, max_workers: int | None = None, include_uptranscoding: bool = True) -> None:
         """
         Process all audio files in source directory with optional uptranscoding.
 
@@ -80,18 +78,18 @@ class AudioEncoder:
         """
         # Check if migration is needed
         self.check_migration_needed()
-        
+
         # Stage 1: Create MP3 files
         self._create_mp3_files(max_workers)
-        
+
         # Stage 2: Create uptranscoded FLAC files from MP3s
         if include_uptranscoding:
             logger.info("\n" + "="*50)
             logger.info("STAGE 2: Creating uptranscoded FLAC files")
             logger.info("="*50)
             self.create_uptranscoded_files(max_workers)
-    
-    def _create_mp3_files(self, max_workers: Optional[int] = None) -> None:
+
+    def _create_mp3_files(self, max_workers: int | None = None) -> None:
         """Create MP3 files from source FLAC/WAV files (Stage 1)."""
         # Find source files
         source_files = self._collect_source_files()
@@ -106,7 +104,7 @@ class AudioEncoder:
         if max_workers is None:
             max_workers = max(1, os.cpu_count() - 1)
 
-        logger.info(f"STAGE 1: MP3 encoding process:")
+        logger.info("STAGE 1: MP3 encoding process:")
         logger.info(f"├── Found {len(source_files)} source files")
         logger.info(f"├── Will create {total_formats} formats per file")
         logger.info(
@@ -125,7 +123,7 @@ class AudioEncoder:
         finally:
             progress.finish()
 
-    def _collect_source_files(self) -> List[Path]:
+    def _collect_source_files(self) -> list[Path]:
         """Collect all valid source audio files."""
         source_files = []
         for ext in [".flac", ".wav"]:
@@ -237,7 +235,7 @@ class AudioEncoder:
 
     def _create_encoding_tasks(
         self, wav_path: Path, source_name: str
-    ) -> List[Tuple[List[str], Path, str]]:
+    ) -> list[tuple[list[str], Path, str]]:
         """Create list of encoding tasks for parallel processing."""
         tasks = []
 
@@ -245,7 +243,7 @@ class AudioEncoder:
         for bitrate in CBR_BITRATES:
             output_path = self.output_dir / "lossy" / str(bitrate) / f"{source_name}.mp3"
             old_path = self.output_dir / str(bitrate) / f"{source_name}.mp3"
-            
+
             # Skip if file exists in either new or old location
             if output_path.exists() or old_path.exists():
                 continue
@@ -268,7 +266,7 @@ class AudioEncoder:
         for preset in VBR_PRESETS:
             output_path = self.output_dir / "lossy" / f"v{preset}" / f"{source_name}.mp3"
             old_path = self.output_dir / f"v{preset}" / f"{source_name}.mp3"
-            
+
             # Skip if file exists in either new or old location
             if output_path.exists() or old_path.exists():
                 continue
@@ -291,7 +289,7 @@ class AudioEncoder:
 
         return tasks
 
-    def _run_encode(self, task: Tuple[List[str], Path, str]) -> bool:
+    def _run_encode(self, task: tuple[list[str], Path, str]) -> bool:
         """Execute a single encoding task."""
         cmd, output_path, task_id = task
         try:
@@ -313,13 +311,13 @@ class AudioEncoder:
     def _check_outputs_exist(self, source_name: str) -> bool:
         """Check if all output formats exist for source in either old or new location."""
         all_exist = True
-        
+
         for bitrate in CBR_BITRATES:
             # Check new location first
             new_path = self.output_dir / "lossy" / str(bitrate) / f"{source_name}.mp3"
             # Check old location as fallback
             old_path = self.output_dir / str(bitrate) / f"{source_name}.mp3"
-            
+
             if not (new_path.exists() or old_path.exists()):
                 all_exist = False
                 break
@@ -330,14 +328,14 @@ class AudioEncoder:
                 new_path = self.output_dir / "lossy" / f"v{preset}" / f"{source_name}.mp3"
                 # Check old location as fallback
                 old_path = self.output_dir / f"v{preset}" / f"{source_name}.mp3"
-                
+
                 if not (new_path.exists() or old_path.exists()):
                     all_exist = False
                     break
 
         return all_exist
 
-    def _cleanup_temp_file(self, temp_path: Optional[Path]) -> None:
+    def _cleanup_temp_file(self, temp_path: Path | None) -> None:
         """Clean up temporary WAV file."""
         if temp_path and temp_path.exists() and temp_path.name.startswith("temp_"):
             try:
@@ -362,29 +360,29 @@ class AudioEncoder:
     def check_migration_needed(self) -> bool:
         """Check if migration from old to new directory structure is needed."""
         old_dirs_with_files = []
-        
+
         # Check for files in old directory structure
         for bitrate in CBR_BITRATES:
             old_dir = self.output_dir / str(bitrate)
             if old_dir.exists() and list(old_dir.glob("*.mp3")):
                 old_dirs_with_files.append(str(bitrate))
-        
+
         for preset in VBR_PRESETS:
             old_dir = self.output_dir / f"v{preset}"
             if old_dir.exists() and list(old_dir.glob("*.mp3")):
                 old_dirs_with_files.append(f"v{preset}")
-        
+
         if old_dirs_with_files:
-            logger.info(f"\nMIGRATION NOTICE:")
+            logger.info("\nMIGRATION NOTICE:")
             logger.info(f"├── Found files in old directory structure: {old_dirs_with_files}")
-            logger.info(f"├── Consider migrating to new structure for better organization")
-            logger.info(f"├── Preview: python transcode.py --migrate --dry-run")
-            logger.info(f"└── Migrate: python transcode.py --migrate")
+            logger.info("├── Consider migrating to new structure for better organization")
+            logger.info("├── Preview: python transcode.py --migrate --dry-run")
+            logger.info("└── Migrate: python transcode.py --migrate")
             return True
-            
+
         return False
 
-    def create_uptranscoded_files(self, max_workers: Optional[int] = None) -> None:
+    def create_uptranscoded_files(self, max_workers: int | None = None) -> None:
         """
         Create uptranscoded FLAC files from MP3 files.
         
@@ -395,59 +393,59 @@ class AudioEncoder:
         """
         if max_workers is None:
             max_workers = max(1, os.cpu_count() - 1)
-        
+
         # Find all MP3 files in lossy/ subdirectory
         mp3_files = self._collect_mp3_files()
         if not mp3_files:
             logger.warning("No MP3 files found for uptranscoding. Run regular encoding first.")
             return
-        
+
         total_files = len(mp3_files)
-        logger.info(f"Starting uptranscode generation:")
+        logger.info("Starting uptranscode generation:")
         logger.info(f"├── Found {total_files} MP3 files")
         logger.info(f"└── Using {max_workers} worker threads")
-        
+
         progress = ProgressTracker(total_files, 1, phase_name="Uptranscode")
-        
+
         try:
             # Process in parallel
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(self._uptranscode_file, mp3_file, progress) 
+                futures = [executor.submit(self._uptranscode_file, mp3_file, progress)
                           for mp3_file in mp3_files]
-                
+
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         future.result()
                     except Exception as e:
                         logger.error(f"Uptranscode task failed: {str(e)}")
-        
+
         except KeyboardInterrupt:
             logger.warning("\nUptranscode process interrupted by user")
             raise
-        
+
         finally:
             progress.finish()
-    
-    def _collect_mp3_files(self) -> List[Path]:
+
+    def _collect_mp3_files(self) -> list[Path]:
         """Collect all MP3 files from both old and new directory structures."""
         mp3_files = []
-        
+
         # Check new lossy/ subdirectory first
         lossy_dir = self.output_dir / "lossy"
         old_format_dirs = []
-        
+
         # Collect from new directory structure
         if lossy_dir.exists():
             for bitrate in CBR_BITRATES:
                 bitrate_dir = lossy_dir / str(bitrate)
                 if bitrate_dir.exists():
                     mp3_files.extend(bitrate_dir.glob("*.mp3"))
-            
+
             for preset in VBR_PRESETS:
                 preset_dir = lossy_dir / f"v{preset}"
                 if preset_dir.exists():
                     mp3_files.extend(preset_dir.glob("*.mp3"))
-        
+
         # Also check old directory structure for files that haven't been migrated yet
         for bitrate in CBR_BITRATES:
             old_dir = self.output_dir / str(bitrate)
@@ -458,7 +456,7 @@ class AudioEncoder:
                     logger.warning("Consider running migration: python transcode.py --migrate")
                     mp3_files.extend(old_files)
                     old_format_dirs.append(str(old_dir))
-        
+
         for preset in VBR_PRESETS:
             old_dir = self.output_dir / f"v{preset}"
             if old_dir.exists():
@@ -468,12 +466,12 @@ class AudioEncoder:
                     if str(old_dir) not in old_format_dirs:  # Avoid duplicate warning
                         logger.warning("Consider running migration: python transcode.py --migrate")
                     mp3_files.extend(old_files)
-        
+
         if old_format_dirs:
-            logger.info(f"Collected MP3 files from both old and new directory structures")
-        
+            logger.info("Collected MP3 files from both old and new directory structures")
+
         return mp3_files
-    
+
     def _uptranscode_file(self, mp3_file: Path, progress: "ProgressTracker") -> None:
         """Uptranscode a single MP3 file to FLAC."""
         # Determine source format from path
@@ -482,18 +480,18 @@ class AudioEncoder:
             source_format = f"from_{parent_name}"
         else:
             source_format = f"from_{parent_name}"
-        
+
         # Create output path
         uptranscode_dir = self.output_dir / "uptranscoded" / source_format
         uptranscode_dir.mkdir(parents=True, exist_ok=True)
-        
+
         output_file = uptranscode_dir / f"{mp3_file.stem}.flac"
-        
+
         # Skip if already exists
         if output_file.exists():
             logger.debug(f"Skipping existing uptranscode: {output_file.name}")
             return
-        
+
         # Convert MP3 to FLAC using FFmpeg
         try:
             cmd = [
@@ -504,24 +502,24 @@ class AudioEncoder:
                 "-y",  # Overwrite output files
                 str(output_file)
             ]
-            
+
             result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
+                cmd,
+                capture_output=True,
+                text=True,
                 check=True
             )
-            
+
             logger.debug(f"Uptranscoded: {mp3_file.name} → {output_file.name}")
             progress.update_file_progress(1, 1, mp3_file.name)
-            
+
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to uptranscode {mp3_file.name}: {e.stderr}")
             # Clean up partial file
             if output_file.exists():
                 output_file.unlink()
             raise
-        
+
         except Exception as e:
             logger.error(f"Error uptranscoding {mp3_file.name}: {str(e)}")
             if output_file.exists():
@@ -615,57 +613,57 @@ Examples:
   python transcode.py --uptranscode-only
         """
     )
-    
+
     parser.add_argument(
-        "--migrate", 
+        "--migrate",
         action="store_true",
         help="Migrate existing files from old directory structure to new structure"
     )
-    
+
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="With --migrate, show what would be moved without actually moving files"
     )
-    
+
     parser.add_argument(
-        "--no-uptranscode", 
+        "--no-uptranscode",
         action="store_true",
         help="Skip uptranscode generation (MP3→FLAC conversion)"
     )
-    
+
     parser.add_argument(
         "--uptranscode-only",
-        action="store_true", 
+        action="store_true",
         help="Only create uptranscoded files (skip MP3 generation)"
     )
-    
+
     parser.add_argument(
-        "--workers", 
+        "--workers",
         type=int,
         default=None,
         help="Number of worker threads (default: CPU cores - 1)"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Handle migration mode
     if args.migrate:
         try:
             output_dir = Path("encoded")
             if not output_dir.exists():
                 raise ValueError(f"Output directory '{output_dir}' does not exist")
-            
+
             migrate_existing_files(output_dir, dry_run=args.dry_run)
             return  # Exit after migration
-            
+
         except KeyboardInterrupt:
             logger.warning("\nMigration interrupted by user")
             sys.exit(1)
         except Exception as e:
             logger.error(f"Migration failed: {e}")
             sys.exit(1)
-    
+
     # Regular transcoding mode
     try:
         source_dir = Path("lossless")
@@ -722,65 +720,65 @@ def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
     logger.info("=" * 60)
     logger.info("MIGRATION: Moving existing files to new directory structure")
     logger.info("=" * 60)
-    
+
     # Get all bitrate directories and VBR preset directories
     old_dirs = []
     for bitrate in CBR_BITRATES:
         old_dir = output_dir / str(bitrate)
         if old_dir.exists():
             old_dirs.append((old_dir, str(bitrate)))
-    
+
     for preset in VBR_PRESETS:
         old_dir = output_dir / f"v{preset}"
         if old_dir.exists():
             old_dirs.append((old_dir, f"v{preset}"))
-    
+
     if not old_dirs:
         logger.info("No old-format directories found. Migration not needed.")
         return
-    
+
     total_files = 0
     for old_dir, _ in old_dirs:
         mp3_files = list(old_dir.glob("*.mp3"))
         total_files += len(mp3_files)
-    
+
     if total_files == 0:
         logger.info("No MP3 files found in old directories.")
         return
-    
+
     logger.info(f"Found {len(old_dirs)} old directories with {total_files} total files")
-    
+
     if dry_run:
         logger.info("DRY RUN MODE - No files will be moved")
-    
+
     # Create new lossy directory
     lossy_dir = output_dir / "lossy"
     if not dry_run:
         lossy_dir.mkdir(exist_ok=True)
-    
+
     moved_files = 0
     skipped_files = 0
-    
+
     for old_dir, format_name in old_dirs:
         logger.info(f"\nProcessing {format_name} directory...")
-        
+
         # Create new directory structure
         new_dir = lossy_dir / format_name
         if not dry_run:
             new_dir.mkdir(exist_ok=True)
-        
+
         # Move all MP3 files
         mp3_files = list(old_dir.glob("*.mp3"))
         logger.info(f"├── Found {len(mp3_files)} MP3 files in {old_dir}")
-        
+
         for mp3_file in mp3_files:
             new_path = new_dir / mp3_file.name
-            
+
             if new_path.exists():
                 logger.warning(f"├── SKIP: {mp3_file.name} (already exists in new location)")
                 skipped_files += 1
                 continue
-            
+
             if dry_run:
                 logger.info(f"├── WOULD MOVE: {mp3_file.name}")
             else:
@@ -791,7 +789,7 @@ def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
                     moved_files += 1
                 except Exception as e:
                     logger.error(f"├── ERROR moving {mp3_file.name}: {e}")
-        
+
         # Remove old directory if empty
         if not dry_run and old_dir.exists():
             try:
@@ -804,12 +802,12 @@ def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
                     logger.warning(f"└── Left directory {old_dir} (contains {len(remaining_files)} files)")
             except Exception as e:
                 logger.error(f"└── Error removing directory {old_dir}: {e}")
-    
-    logger.info(f"\nMigration Summary:")
+
+    logger.info("\nMigration Summary:")
     logger.info(f"├── Files moved: {moved_files}")
     logger.info(f"├── Files skipped: {skipped_files}")
     logger.info(f"└── Total processed: {total_files}")
-    
+
     if dry_run:
         logger.info("\nTo perform actual migration, run: python transcode.py --migrate")
     else:
@@ -822,22 +820,22 @@ def main_migrate():
         description="Migrate existing training data to new directory structure",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
+
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be moved without actually moving files"
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         output_dir = Path("encoded")
         if not output_dir.exists():
             raise ValueError(f"Output directory '{output_dir}' does not exist")
-        
+
         migrate_existing_files(output_dir, dry_run=args.dry_run)
-        
+
     except KeyboardInterrupt:
         logger.warning("\nMigration interrupted by user")
         sys.exit(1)

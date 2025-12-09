@@ -3,16 +3,16 @@
 Based on D'Alessandro & Shi paper methodology with polynomial SVM.
 """
 
-from pathlib import Path
-import pickle
-import numpy as np
-from typing import List, Optional, Dict
-from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler
 import logging
+import pickle
+from pathlib import Path
 
-from .types import SpectralFeatures, ClassifierPrediction
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
 from .constants import BITRATE_CLASSES, CLASSIFIER_PARAMS
+from .types import ClassifierPrediction, SpectralFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class QualityClassifier:
     Classifies into 6 classes: 128, 192, 256, 320, V0, LOSSLESS.
     """
 
-    def __init__(self, model_path: Optional[Path] = None):
+    def __init__(self, model_path: Path | None = None):
         """
         Initialize classifier with paper's SVM parameters.
 
@@ -65,9 +65,9 @@ class QualityClassifier:
 
     def train(
         self,
-        features_list: List[SpectralFeatures],
-        labels: List[int],
-        save_path: Optional[Path] = None,
+        features_list: list[SpectralFeatures],
+        labels: list[int],
+        save_path: Path | None = None,
     ) -> None:
         """
         Train the classifier on spectral features.
@@ -103,7 +103,7 @@ class QualityClassifier:
 
         # Log training info
         unique, counts = np.unique(y, return_counts=True)
-        class_dist = {self.classes[c][0]: n for c, n in zip(unique, counts)}
+        class_dist = {self.classes[c][0]: n for c, n in zip(unique, counts, strict=True)}
         logger.info(f"Trained on {len(X)} samples. Class distribution: {class_dist}")
 
         # Save model if requested
@@ -150,8 +150,8 @@ class QualityClassifier:
         )
 
     def predict_batch(
-        self, features_list: List[SpectralFeatures]
-    ) -> List[ClassifierPrediction]:
+        self, features_list: list[SpectralFeatures]
+    ) -> list[ClassifierPrediction]:
         """
         Predict quality class for multiple files.
 

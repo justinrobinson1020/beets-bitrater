@@ -1,12 +1,11 @@
 """End-to-end integration tests for transcode detection."""
 
 import numpy as np
-import pytest
 
-from beetsplug.bitrater.cutoff_detector import CutoffDetector
 from beetsplug.bitrater.confidence import ConfidenceCalculator
+from beetsplug.bitrater.constants import QUALITY_RANK
+from beetsplug.bitrater.cutoff_detector import CutoffDetector
 from beetsplug.bitrater.transcode_detector import TranscodeDetector
-from beetsplug.bitrater.constants import QUALITY_RANK, CLASS_CUTOFFS
 
 
 class TestFullPipeline:
@@ -15,9 +14,10 @@ class TestFullPipeline:
     def test_128_to_flac_detection_pipeline(self):
         """Full pipeline should detect 128 kbps source in FLAC container."""
         # Simulate 128 kbps spectral signature
+        # 4096 points gives ~5.4 Hz resolution for 22050 Hz Nyquist
         freqs = np.linspace(0, 22050, 4096)
         psd = np.ones_like(freqs)
-        psd[freqs > 16000] = 0.001  # 128 kbps cutoff
+        psd[freqs > 16000] = 0.001  # 128 kbps cutoff at ~16 kHz
 
         # Step 1: Cutoff detection
         cutoff_detector = CutoffDetector()
@@ -45,8 +45,9 @@ class TestFullPipeline:
             detected_class="128",
         )
 
+        expected_gap = QUALITY_RANK["LOSSLESS"] - QUALITY_RANK["128"]
         assert transcode_result.is_transcode is True
-        assert transcode_result.quality_gap == 6
+        assert transcode_result.quality_gap == expected_gap
         assert transcode_result.transcoded_from == "128"
 
     def test_genuine_lossless_pipeline(self):

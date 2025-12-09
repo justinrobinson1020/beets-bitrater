@@ -3,18 +3,18 @@
 Based on D'Alessandro & Shi paper methodology, extended for lossless detection.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 import librosa
 import numpy as np
 from scipy import signal
-import logging
 
 from beetsplug.bitrater.training_data.feature_cache import FeatureCache
+
+from .constants import MINIMUM_DURATION, MINIMUM_SAMPLE_RATE, SPECTRAL_PARAMS
 from .types import SpectralFeatures
-from .constants import SPECTRAL_PARAMS, MINIMUM_SAMPLE_RATE, MINIMUM_DURATION
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class SpectrumAnalyzer:
         cache_dir = current_dir / "training_data" / "cache"
         return cache_dir
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         """
         Initialize analyzer with optional caching.
 
@@ -58,7 +58,7 @@ class SpectrumAnalyzer:
 
         self._band_frequencies = self._calculate_band_frequencies()
 
-    def _calculate_band_frequencies(self) -> List[Tuple[float, float]]:
+    def _calculate_band_frequencies(self) -> list[tuple[float, float]]:
         """Calculate frequency band boundaries for 150 bands across 16-22 kHz."""
         band_width = (self.max_freq - self.min_freq) / self.num_bands
         bands = []
@@ -68,7 +68,7 @@ class SpectrumAnalyzer:
             bands.append((float(start_freq), float(end_freq)))
         return bands
 
-    def analyze_file(self, file_path: str) -> Optional[SpectralFeatures]:
+    def analyze_file(self, file_path: str) -> SpectralFeatures | None:
         """
         Extract spectral features from an audio file.
 
@@ -141,7 +141,7 @@ class SpectrumAnalyzer:
 
     def _extract_band_features(
         self, psd: np.ndarray, freqs: np.ndarray
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """
         Extract PSD features for 150 frequency bands (16-22 kHz).
 
@@ -223,7 +223,7 @@ class SpectrumAnalyzer:
 
         return True
 
-    def get_psd(self, file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def get_psd(self, file_path: str) -> tuple[np.ndarray, np.ndarray] | None:
         """
         Get raw PSD data for cutoff detection.
 

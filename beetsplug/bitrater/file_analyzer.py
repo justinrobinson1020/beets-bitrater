@@ -2,12 +2,11 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
-from mutagen.mp3 import MP3
-from mutagen.flac import FLAC
-from mutagen.wave import WAVE
 from mutagen import File as MutagenFile
+from mutagen.flac import FLAC
+from mutagen.mp3 import MP3
+from mutagen.wave import WAVE
 
 from .types import FileMetadata
 
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 class FileAnalyzer:
     """Extracts metadata from audio files."""
 
-    def analyze(self, file_path: str) -> Optional[FileMetadata]:
+    def analyze(self, file_path: str) -> FileMetadata | None:
         """
         Extract metadata from an audio file.
 
@@ -108,7 +107,7 @@ class FileAnalyzer:
             filesize=path.stat().st_size,
         )
 
-    def _analyze_generic(self, path: Path, file_format: str) -> Optional[FileMetadata]:
+    def _analyze_generic(self, path: Path, file_format: str) -> FileMetadata | None:
         """Analyze other audio formats using generic mutagen."""
         audio = MutagenFile(path)
         if audio is None:

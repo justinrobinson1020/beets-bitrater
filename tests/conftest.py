@@ -1,16 +1,16 @@
 """Pytest configuration and fixtures for bitrater tests."""
 
-import pytest
-import numpy as np
 from pathlib import Path
-import tempfile
 
-from beetsplug.bitrater.types import SpectralFeatures, ClassifierPrediction
+import numpy as np
+import pytest
+
 from beetsplug.bitrater.constants import SPECTRAL_PARAMS
+from beetsplug.bitrater.types import SpectralFeatures
 
 
 @pytest.fixture
-def sample_features():
+def sample_features() -> SpectralFeatures:
     """Create sample SpectralFeatures for testing."""
     num_bands = SPECTRAL_PARAMS["num_bands"]
 
@@ -41,7 +41,7 @@ def sample_features():
 
 
 @pytest.fixture
-def lossless_features():
+def lossless_features() -> SpectralFeatures:
     """Create SpectralFeatures simulating lossless audio."""
     num_bands = SPECTRAL_PARAMS["num_bands"]
 
@@ -64,13 +64,13 @@ def lossless_features():
 
 
 @pytest.fixture
-def temp_model_path(tmp_path):
+def temp_model_path(tmp_path: Path) -> Path:
     """Create a temporary path for saving/loading models."""
     return tmp_path / "test_model.pkl"
 
 
 @pytest.fixture
-def training_features():
+def training_features() -> tuple[list[SpectralFeatures], list[int]]:
     """Create a set of training features for different classes."""
     num_bands = SPECTRAL_PARAMS["num_bands"]
     features_list = []

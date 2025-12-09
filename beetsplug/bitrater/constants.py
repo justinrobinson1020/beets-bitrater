@@ -43,6 +43,11 @@ CLASS_CUTOFFS = {
 # Cutoff detection tolerance (Hz)
 CUTOFF_TOLERANCE = 500
 
+# Cutoff detector parameters
+ENERGY_EPSILON = 1e-10  # Minimum energy threshold to avoid division by zero
+GRADIENT_WINDOW_HZ = 200  # Window size for gradient measurement (Hz)
+GRADIENT_NORMALIZATION_DB = 30.0  # dB drop that corresponds to gradient=1.0
+
 # Spectral analysis parameters - extended for lossless detection
 SPECTRAL_PARAMS = {
     "min_freq": 16000,   # Paper's starting frequency (Hz)
@@ -82,3 +87,7 @@ ENCODER_SIGNATURES = {
 # Minimum requirements
 MINIMUM_SAMPLE_RATE = 44100  # Need at least 44.1kHz for spectral analysis
 MINIMUM_DURATION = 0.1  # At least 100ms of audio
+
+# Warning thresholds
+LOW_CONFIDENCE_THRESHOLD = 0.7  # Warn if confidence below this
+BITRATE_MISMATCH_FACTOR = 1.5  # Warn if stated bitrate > detected * this factor

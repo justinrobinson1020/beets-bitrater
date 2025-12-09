@@ -1,16 +1,17 @@
 """Plugin interface for beets-bitrater."""
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
-import threading
-from concurrent.futures import ThreadPoolExecutor
 import logging
+import threading
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
 
+from beets import util
+from beets.dbcore import types
+from beets.library import Item, Library
 from beets.plugins import BeetsPlugin
 from beets.ui import Subcommand, UserError, decargs
-from beets import config, util
-from beets.library import Library, Item
-from beets.dbcore import types
 
 from .analyzer import AudioQualityAnalyzer
 from .types import AnalysisResult
@@ -21,7 +22,7 @@ logger = logging.getLogger("beets.bitrater")
 class BitraterPlugin(BeetsPlugin):
     """Plugin for analyzing audio quality and detecting transcodes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.analyzer = AudioQualityAnalyzer()
         self.config.add(
@@ -59,7 +60,7 @@ class BitraterPlugin(BeetsPlugin):
         # Register import listener
         self.register_listener("import_task_files", self.import_task)
 
-    def commands(self) -> List[Subcommand]:
+    def commands(self) -> list[Subcommand]:
         """Create plugin commands."""
         analyze_cmd = Subcommand(
             "bitrater", help="Analyze audio files to detect original bitrate"
@@ -82,7 +83,7 @@ class BitraterPlugin(BeetsPlugin):
         analyze_cmd.func = self.analyze_command
         return [analyze_cmd]
 
-    def analyze_command(self, lib: Library, opts: Any, args: List[str]) -> None:
+    def analyze_command(self, lib: Library, opts: Any, args: list[str]) -> None:
         """Handle the analyze command."""
         try:
             if opts.train:
@@ -111,15 +112,15 @@ class BitraterPlugin(BeetsPlugin):
             self._process_results(items, results, opts.verbose)
 
         except Exception as e:
-            raise UserError(f"Analysis failed: {e}")
+            raise UserError(f"Analysis failed: {e}") from e
 
     def _analyze_items(
         self, items: Sequence[Item], thread_count: int
-    ) -> List[Optional[AnalysisResult]]:
+    ) -> list[AnalysisResult | None]:
         """Analyze multiple items in parallel."""
         logger.info(f"Analyzing {len(items)} files using {thread_count} threads")
 
-        results: List[Optional[AnalysisResult]] = [None] * len(items)
+        results: list[AnalysisResult | None] = [None] * len(items)
         lock = threading.Lock()
         progress = {"done": 0}
         total = len(items)
@@ -147,7 +148,7 @@ class BitraterPlugin(BeetsPlugin):
     def _process_results(
         self,
         items: Sequence[Item],
-        results: Sequence[Optional[AnalysisResult]],
+        results: Sequence[AnalysisResult | None],
         verbose: bool,
     ) -> None:
         """Process and store analysis results."""
@@ -158,7 +159,7 @@ class BitraterPlugin(BeetsPlugin):
         min_confidence = self.config["min_confidence"].get()
         warn_transcodes = self.config["warn_transcodes"].get()
 
-        for item, result in zip(items, results):
+        for item, result in zip(items, results, strict=True):
             if not result:
                 continue
 
@@ -224,7 +225,7 @@ class BitraterPlugin(BeetsPlugin):
                 logger.info(f"Saved trained model to {save_path}")
 
         except Exception as e:
-            raise UserError(f"Training failed: {e}")
+            raise UserError(f"Training failed: {e}") from e
 
     def _print_analysis(self, item: Item, result: AnalysisResult) -> None:
         """Print detailed analysis results for an item."""
@@ -259,8 +260,13 @@ class BitraterPlugin(BeetsPlugin):
         if transcodes == 0 and low_confidence == 0:
             print("✓ All files appear to be original quality")
 
-    def import_task(self, session, task):
-        """Automatically analyze files during import if enabled."""
+    def import_task(self, session: Any, task: Any) -> None:
+        """Automatically analyze files during import if enabled.
+
+        Args:
+            session: Beets import session (beets.importer.ImportSession)
+            task: Beets import task (beets.importer.ImportTask)
+        """
         if not self.config["auto"].get():
             return
 

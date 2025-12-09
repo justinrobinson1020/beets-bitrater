@@ -1,11 +1,15 @@
 """Tests for spectrum analyzer."""
 
-import pytest
-import numpy as np
-from pathlib import Path
 
+import numpy as np
+import pytest
+
+from beetsplug.bitrater.constants import (
+    MINIMUM_DURATION,
+    MINIMUM_SAMPLE_RATE,
+    SPECTRAL_PARAMS,
+)
 from beetsplug.bitrater.spectrum import SpectrumAnalyzer
-from beetsplug.bitrater.constants import SPECTRAL_PARAMS
 
 
 class TestSpectrumAnalyzer:
@@ -39,27 +43,44 @@ class TestSpectrumAnalyzer:
         assert band_width == pytest.approx(expected_width, rel=0.01)
 
     def test_validate_audio_empty(self):
-        """Test validation rejects empty audio."""
+        """Test validation rejects empty audio (0 samples)."""
         analyzer = SpectrumAnalyzer()
-        assert analyzer._validate_audio(np.array([]), 44100) is False
+        assert analyzer._validate_audio(np.array([]), MINIMUM_SAMPLE_RATE) is False
 
     def test_validate_audio_low_sample_rate(self):
-        """Test validation rejects low sample rate."""
+        """Test validation rejects sample rate below MINIMUM_SAMPLE_RATE."""
         analyzer = SpectrumAnalyzer()
         y = np.random.rand(44100)  # 1 second of audio
-        assert analyzer._validate_audio(y, 22050) is False  # Too low
+        low_sample_rate = MINIMUM_SAMPLE_RATE - 1  # Just below threshold
+        assert analyzer._validate_audio(y, low_sample_rate) is False
+
+    def test_validate_audio_at_minimum_sample_rate(self):
+        """Test validation accepts audio at exactly MINIMUM_SAMPLE_RATE."""
+        analyzer = SpectrumAnalyzer()
+        y = np.random.rand(MINIMUM_SAMPLE_RATE)  # 1 second at minimum rate
+        assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
     def test_validate_audio_short_duration(self):
-        """Test validation rejects short audio."""
+        """Test validation rejects audio below MINIMUM_DURATION threshold."""
         analyzer = SpectrumAnalyzer()
-        y = np.random.rand(100)  # Very short
-        assert analyzer._validate_audio(y, 44100) is False
+        # Calculate samples just below the minimum duration
+        samples_below_threshold = int(MINIMUM_DURATION * MINIMUM_SAMPLE_RATE) - 1
+        y = np.random.rand(max(1, samples_below_threshold))
+        assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is False
+
+    def test_validate_audio_at_minimum_duration(self):
+        """Test validation accepts audio at exactly MINIMUM_DURATION."""
+        analyzer = SpectrumAnalyzer()
+        # Calculate samples for exactly the minimum duration
+        samples_at_threshold = int(MINIMUM_DURATION * MINIMUM_SAMPLE_RATE) + 1
+        y = np.random.rand(samples_at_threshold)
+        assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
     def test_validate_audio_valid(self):
-        """Test validation accepts valid audio."""
+        """Test validation accepts valid audio above all thresholds."""
         analyzer = SpectrumAnalyzer()
-        y = np.random.rand(44100)  # 1 second at 44.1kHz
-        assert analyzer._validate_audio(y, 44100) is True
+        y = np.random.rand(MINIMUM_SAMPLE_RATE)  # 1 second at minimum rate
+        assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
     def test_extract_band_features_shape(self):
         """Test that extracted features have correct shape."""

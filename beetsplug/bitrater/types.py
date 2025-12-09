@@ -1,8 +1,9 @@
 """Type definitions for the bitrater plugin."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
+from typing import Any
+
 import numpy as np
 
 
@@ -16,7 +17,7 @@ class SpectralFeatures:
     - Bands 100-149: 20-22 kHz (ultrasonic for lossless detection)
     """
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
-    frequency_bands: List[Tuple[float, float]]  # (start_freq, end_freq) pairs
+    frequency_bands: list[tuple[float, float]]  # (start_freq, end_freq) pairs
 
 
 @dataclass
@@ -25,7 +26,7 @@ class ClassifierPrediction:
     format_type: str  # "128", "192", "256", "320", "V0", "LOSSLESS"
     estimated_bitrate: int  # 128, 192, 256, 320, 245 (V0), or 1411 (lossless)
     confidence: float  # Confidence in prediction (0-1)
-    probabilities: Dict[int, float] = field(default_factory=dict)  # Class probabilities
+    probabilities: dict[int, float] = field(default_factory=dict)  # Class probabilities
 
 
 @dataclass
@@ -37,11 +38,11 @@ class FileMetadata:
     channels: int  # Number of audio channels
     encoding_type: str  # CBR, VBR, ABR, lossless
     encoder: str
-    encoder_version: Optional[str] = None
-    bitrate: Optional[int] = None  # kbps for lossy, None for lossless
-    bits_per_sample: Optional[int] = None  # For lossless formats
-    filesize: Optional[int] = None  # File size in bytes
-    tags: Dict[str, Any] = field(default_factory=dict)
+    encoder_version: str | None = None
+    bitrate: int | None = None  # kbps for lossy, None for lossless
+    bits_per_sample: int | None = None  # For lossless formats
+    filesize: int | None = None  # File size in bytes
+    tags: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -61,17 +62,17 @@ class AnalysisResult:
     stated_class: str  # What file claims to be: "320", "LOSSLESS", etc.
     detected_cutoff: int  # Detected cutoff frequency in Hz
     quality_gap: int  # Difference in quality ranks (0-6)
-    transcoded_from: Optional[str] = None  # e.g., "128" if transcoded
+    transcoded_from: str | None = None  # e.g., "128" if transcoded
 
     # Metadata comparison
-    stated_bitrate: Optional[int] = None  # What the file metadata claims
+    stated_bitrate: int | None = None  # What the file metadata claims
 
     # Analysis metadata
     analysis_version: str = "4.0"  # Updated version
     analysis_date: datetime = field(default_factory=datetime.now)
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def summarize(self) -> Dict[str, Any]:
+    def summarize(self) -> dict[str, Any]:
         """Create a summary of key findings."""
         return {
             "filename": self.filename,

@@ -1,17 +1,21 @@
 """Audio quality analyzer - orchestrates spectral analysis and classification."""
 
-from pathlib import Path
-from typing import Optional, Dict, List
 import logging
+from pathlib import Path
 
-from .spectrum import SpectrumAnalyzer
 from .classifier import QualityClassifier
-from .file_analyzer import FileAnalyzer
-from .cutoff_detector import CutoffDetector
 from .confidence import ConfidenceCalculator
+from .constants import (
+    BITRATE_MISMATCH_FACTOR,
+    CLASS_LABELS,
+    LOSSLESS_CONTAINERS,
+    LOW_CONFIDENCE_THRESHOLD,
+)
+from .cutoff_detector import CutoffDetector
+from .file_analyzer import FileAnalyzer
+from .spectrum import SpectrumAnalyzer
 from .transcode_detector import TranscodeDetector
 from .types import AnalysisResult, SpectralFeatures
-from .constants import LOSSLESS_CONTAINERS, CLASS_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +28,7 @@ class AudioQualityAnalyzer:
     to detect audio quality, verify lossless files, and identify transcodes.
     """
 
-    def __init__(self, model_path: Optional[Path] = None):
+    def __init__(self, model_path: Path | None = None):
         """
         Initialize analyzer components.
 
@@ -38,7 +42,7 @@ class AudioQualityAnalyzer:
         self.confidence_calculator = ConfidenceCalculator()
         self.transcode_detector = TranscodeDetector()
 
-    def analyze_file(self, file_path: str) -> Optional[AnalysisResult]:
+    def analyze_file(self, file_path: str) -> AnalysisResult | None:
         """
         Analyze a single audio file with hybrid transcode detection.
 
@@ -115,11 +119,28 @@ class AudioQualityAnalyzer:
 
         # 8. Collect all warnings
         warnings = list(conf_result.warnings)
+
+        # Low confidence warning
+        if conf_result.final_confidence < LOW_CONFIDENCE_THRESHOLD:
+            warnings.append(
+                f"Low confidence in detection: {conf_result.final_confidence:.1%}"
+            )
+
+        # Transcode warning
         if transcode_result.is_transcode:
             warnings.append(
                 f"File appears to be transcoded from {transcode_result.transcoded_from} "
                 f"(quality gap: {transcode_result.quality_gap})"
             )
+
+        # Bitrate mismatch warning (stated vs detected for lossy files)
+        if stated_bitrate and prediction.format_type != "LOSSLESS":
+            detected_bitrate = prediction.estimated_bitrate
+            if stated_bitrate > detected_bitrate * BITRATE_MISMATCH_FACTOR:
+                warnings.append(
+                    f"Stated bitrate ({stated_bitrate} kbps) much higher than "
+                    f"detected ({detected_bitrate} kbps) - possible upsampled file"
+                )
 
         return AnalysisResult(
             filename=str(path),
@@ -138,9 +159,9 @@ class AudioQualityAnalyzer:
 
     def train(
         self,
-        training_data: Dict[str, int],
-        save_path: Optional[Path] = None,
-    ) -> Dict[str, int]:
+        training_data: dict[str, int],
+        save_path: Path | None = None,
+    ) -> dict[str, int]:
         """
         Train the classifier from a dictionary of file paths and class labels.
 
@@ -154,9 +175,9 @@ class AudioQualityAnalyzer:
         if not training_data:
             raise ValueError("No training data provided")
 
-        features_list: List[SpectralFeatures] = []
-        labels: List[int] = []
-        failed_files: List[str] = []
+        features_list: list[SpectralFeatures] = []
+        labels: list[int] = []
+        failed_files: list[str] = []
 
         logger.info(f"Processing {len(training_data)} training files...")
 
@@ -189,8 +210,8 @@ class AudioQualityAnalyzer:
     def train_from_directory(
         self,
         training_dir: Path,
-        save_path: Optional[Path] = None,
-    ) -> Dict[str, int]:
+        save_path: Path | None = None,
+    ) -> dict[str, int]:
         """
         Train the classifier from a directory structure.
 
@@ -226,7 +247,7 @@ class AudioQualityAnalyzer:
             "lossless": CLASS_LABELS["LOSSLESS"],
         }
 
-        training_data: Dict[str, int] = {}
+        training_data: dict[str, int] = {}
         audio_extensions = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
 
         for dir_name, class_label in dir_to_class.items():
@@ -244,7 +265,7 @@ class AudioQualityAnalyzer:
 
         return self.train(training_data, save_path)
 
-    def _get_stated_class(self, file_format: str, stated_bitrate: Optional[int]) -> str:
+    def _get_stated_class(self, file_format: str, stated_bitrate: int | None) -> str:
         """
         Determine stated quality class from file format and metadata.
 
@@ -276,46 +297,6 @@ class AudioQualityAnalyzer:
             return "256"
         else:
             return "320"
-
-    def _generate_warnings(
-        self,
-        file_format: str,
-        original_format: str,
-        confidence: float,
-        is_transcode: bool,
-        stated_bitrate: Optional[int],
-    ) -> List[str]:
-        """Generate warning messages based on analysis."""
-        warnings = []
-
-        # Low confidence warning
-        if confidence < 0.7:
-            warnings.append(f"Low confidence in detection: {confidence:.1%}")
-
-        # Transcode warning
-        if is_transcode:
-            warnings.append(
-                f"Lossless file ({file_format.upper()}) appears to be transcoded "
-                f"from {original_format} source"
-            )
-
-        # Bitrate mismatch warning (for lossy files)
-        if stated_bitrate and original_format != "LOSSLESS":
-            from .constants import BITRATE_CLASSES
-
-            detected_bitrate = None
-            for _, (fmt, br) in BITRATE_CLASSES.items():
-                if fmt == original_format:
-                    detected_bitrate = br
-                    break
-
-            if detected_bitrate and stated_bitrate > detected_bitrate * 1.5:
-                warnings.append(
-                    f"Stated bitrate ({stated_bitrate} kbps) much higher than "
-                    f"detected ({detected_bitrate} kbps) - possible upsampled file"
-                )
-
-        return warnings
 
     def save_model(self, path: Path) -> None:
         """Save the trained classifier model."""
