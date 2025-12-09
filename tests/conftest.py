@@ -76,22 +76,24 @@ def training_features():
     features_list = []
     labels = []
 
-    # Create 10 samples per class (6 classes)
-    for class_idx in range(6):
+    # Create 10 samples per class (7 classes)
+    for class_idx in range(7):
         for _ in range(10):
             features = np.random.rand(num_bands).astype(np.float32)
 
             # Add class-specific characteristics
             if class_idx == 0:  # 128 kbps - sharp cutoff early
                 features[60:] *= 0.1
-            elif class_idx == 1:  # 192 kbps
+            elif class_idx == 1:  # V2 - cutoff at ~18.5 kHz
+                features[65:] *= 0.12
+            elif class_idx == 2:  # 192 kbps
                 features[70:] *= 0.15
-            elif class_idx == 2:  # 256 kbps
+            elif class_idx == 3:  # V0
+                features[75:] *= 0.18
+            elif class_idx == 4:  # 256 kbps
                 features[80:] *= 0.2
-            elif class_idx == 3:  # 320 kbps
+            elif class_idx == 5:  # 320 kbps
                 features[90:] *= 0.25
-            elif class_idx == 4:  # V0
-                features[95:] *= 0.3
             else:  # Lossless - content in ultrasonic
                 features[100:] *= 0.8
 
