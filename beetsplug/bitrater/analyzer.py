@@ -7,6 +7,9 @@ import logging
 from .spectrum import SpectrumAnalyzer
 from .classifier import QualityClassifier
 from .file_analyzer import FileAnalyzer
+from .cutoff_detector import CutoffDetector
+from .confidence import ConfidenceCalculator
+from .transcode_detector import TranscodeDetector
 from .types import AnalysisResult, SpectralFeatures
 from .constants import LOSSLESS_CONTAINERS, CLASS_LABELS
 
@@ -31,18 +34,16 @@ class AudioQualityAnalyzer:
         self.spectrum_analyzer = SpectrumAnalyzer()
         self.classifier = QualityClassifier(model_path)
         self.file_analyzer = FileAnalyzer()
+        self.cutoff_detector = CutoffDetector()
+        self.confidence_calculator = ConfidenceCalculator()
+        self.transcode_detector = TranscodeDetector()
 
     def analyze_file(self, file_path: str) -> Optional[AnalysisResult]:
         """
-        Analyze a single audio file.
+        Analyze a single audio file with hybrid transcode detection.
 
-        Performs spectral analysis, classification, and transcode detection.
-
-        Args:
-            file_path: Path to the audio file
-
-        Returns:
-            AnalysisResult with classification and transcode detection, or None if analysis fails
+        Performs spectral analysis, SVM classification, cutoff detection,
+        and applies confidence penalties.
         """
         path = Path(file_path)
 
@@ -63,10 +64,14 @@ class AudioQualityAnalyzer:
             logger.error(f"Failed to extract spectral features from {file_path}")
             return None
 
-        # 3. Classify (if model is trained)
+        # 3. Get file format and stated class
+        file_format = path.suffix.lower().lstrip(".")
+        stated_bitrate = metadata.bitrate if metadata else None
+        stated_class = self._get_stated_class(file_format, stated_bitrate)
+
+        # 4. Classify (if model is trained)
         if not self.classifier.trained:
             logger.warning("Classifier not trained - returning features without classification")
-            file_format = path.suffix.lower().lstrip(".")
             return AnalysisResult(
                 filename=str(path),
                 file_format=file_format,
@@ -74,45 +79,60 @@ class AudioQualityAnalyzer:
                 original_bitrate=0,
                 confidence=0.0,
                 is_transcode=False,
-                stated_class="UNKNOWN",
+                stated_class=stated_class,
                 detected_cutoff=0,
                 quality_gap=0,
-                stated_bitrate=metadata.bitrate if metadata else None,
+                stated_bitrate=stated_bitrate,
                 warnings=["Classifier not trained"],
             )
 
         prediction = self.classifier.predict(features)
 
-        # 4. Determine file format and detect transcoding
-        file_format = path.suffix.lower().lstrip(".")
-        is_lossless_container = file_format in LOSSLESS_CONTAINERS
-        detected_lossy = prediction.format_type != "LOSSLESS"
+        # 5. Cutoff detection for validation
+        psd_data = self.spectrum_analyzer.get_psd(file_path)
+        if psd_data is not None:
+            psd, freqs = psd_data
+            cutoff_result = self.cutoff_detector.detect(psd, freqs)
+            detected_cutoff = cutoff_result.cutoff_frequency
+            gradient = cutoff_result.gradient
+        else:
+            detected_cutoff = 0
+            gradient = 0.5  # Neutral
 
-        # Transcode detection: lossless container but lossy content detected
-        is_transcode = is_lossless_container and detected_lossy
-        transcoded_from = prediction.format_type if is_transcode else None
-
-        # 5. Generate warnings
-        warnings = self._generate_warnings(
-            file_format=file_format,
-            original_format=prediction.format_type,
-            confidence=prediction.confidence,
-            is_transcode=is_transcode,
-            stated_bitrate=metadata.bitrate if metadata else None,
+        # 6. Calculate confidence with penalties
+        conf_result = self.confidence_calculator.calculate(
+            classifier_confidence=prediction.confidence,
+            detected_class=prediction.format_type,
+            detected_cutoff=detected_cutoff,
+            gradient=gradient,
         )
+
+        # 7. Detect transcode
+        transcode_result = self.transcode_detector.detect(
+            stated_class=stated_class,
+            detected_class=prediction.format_type,
+        )
+
+        # 8. Collect all warnings
+        warnings = list(conf_result.warnings)
+        if transcode_result.is_transcode:
+            warnings.append(
+                f"File appears to be transcoded from {transcode_result.transcoded_from} "
+                f"(quality gap: {transcode_result.quality_gap})"
+            )
 
         return AnalysisResult(
             filename=str(path),
             file_format=file_format,
             original_format=prediction.format_type,
             original_bitrate=prediction.estimated_bitrate,
-            confidence=prediction.confidence,
-            is_transcode=is_transcode,
-            stated_class="LOSSLESS" if is_lossless_container else prediction.format_type,
-            detected_cutoff=0,  # Placeholder - will be updated in Task 11
-            quality_gap=0,  # Placeholder - will be calculated properly in Task 9
-            transcoded_from=transcoded_from,
-            stated_bitrate=metadata.bitrate if metadata else None,
+            confidence=conf_result.final_confidence,
+            is_transcode=transcode_result.is_transcode,
+            stated_class=stated_class,
+            detected_cutoff=detected_cutoff,
+            quality_gap=transcode_result.quality_gap,
+            transcoded_from=transcode_result.transcoded_from,
+            stated_bitrate=stated_bitrate,
             warnings=warnings,
         )
 

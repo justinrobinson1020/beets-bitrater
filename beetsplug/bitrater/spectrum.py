@@ -223,6 +223,30 @@ class SpectrumAnalyzer:
 
         return True
 
+    def get_psd(self, file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Get raw PSD data for cutoff detection.
+
+        Args:
+            file_path: Path to audio file
+
+        Returns:
+            Tuple of (psd, freqs) arrays, or None if analysis fails
+        """
+        try:
+            y, sr = librosa.load(file_path, sr=None, mono=True)
+        except Exception as e:
+            logger.error(f"Failed to load audio: {e}")
+            return None
+
+        if not self._validate_audio(y, sr):
+            return None
+
+        # Calculate PSD
+        freqs, psd = signal.welch(y, sr, nperseg=self.fft_size)
+
+        return psd, freqs
+
     def clear_cache(self) -> None:
         """Clear the feature cache."""
         if self.cache is not None:
