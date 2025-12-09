@@ -265,3 +265,26 @@ class TestAnalysisResultFields:
             quality_gap=6,  # LOSSLESS(6) - 128(0) = 6
         )
         assert result.quality_gap == 6
+
+
+class TestIntegratedTranscodeDetection:
+    """Test full transcode detection pipeline."""
+
+    def test_analyze_detects_stated_class_from_container(self):
+        """Analyzer should determine stated_class from file format."""
+        # This test will need mock spectral data
+        # For now, test the helper method
+        from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
+
+        analyzer = AudioQualityAnalyzer()
+
+        # FLAC container = LOSSLESS stated class
+        assert analyzer._get_stated_class("flac", None) == "LOSSLESS"
+        # WAV container = LOSSLESS stated class
+        assert analyzer._get_stated_class("wav", None) == "LOSSLESS"
+        # MP3 with 320 bitrate
+        assert analyzer._get_stated_class("mp3", 320) == "320"
+        # MP3 with 192 bitrate
+        assert analyzer._get_stated_class("mp3", 192) == "192"
+        # MP3 with ~245 bitrate (V0 range)
+        assert analyzer._get_stated_class("mp3", 245) == "V0"

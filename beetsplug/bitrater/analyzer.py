@@ -224,6 +224,39 @@ class AudioQualityAnalyzer:
 
         return self.train(training_data, save_path)
 
+    def _get_stated_class(self, file_format: str, stated_bitrate: Optional[int]) -> str:
+        """
+        Determine stated quality class from file format and metadata.
+
+        Args:
+            file_format: Container format (mp3, flac, etc.)
+            stated_bitrate: Bitrate from file metadata (if available)
+
+        Returns:
+            Quality class string: "128", "V2", "192", "V0", "256", "320", "LOSSLESS"
+        """
+        # Lossless containers are always stated as LOSSLESS
+        if file_format in LOSSLESS_CONTAINERS:
+            return "LOSSLESS"
+
+        # For lossy containers, use bitrate to determine stated class
+        if stated_bitrate is None:
+            return "UNKNOWN"
+
+        # Map bitrate to class
+        if stated_bitrate <= 140:
+            return "128"
+        elif stated_bitrate <= 175:
+            return "V2"
+        elif stated_bitrate <= 210:
+            return "192"
+        elif stated_bitrate <= 260:
+            return "V0"
+        elif stated_bitrate <= 290:
+            return "256"
+        else:
+            return "320"
+
     def _generate_warnings(
         self,
         file_format: str,
