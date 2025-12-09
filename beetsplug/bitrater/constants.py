@@ -2,7 +2,7 @@
 
 # Bitrate classifications
 CBR_BITRATES = [128, 192, 256, 320]  # kbps
-VBR_PRESETS = [0]  # VBR preset levels (only V0 for now)
+VBR_PRESETS = [0, 2]  # VBR preset levels (V0 and V2)
 
 # VBR bitrate ranges and averages
 VBR_RANGES = {
