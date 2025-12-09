@@ -293,7 +293,7 @@ class AudioEncoder:
         """Execute a single encoding task."""
         cmd, output_path, task_id = task
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
             return True
 
         except subprocess.CalledProcessError as e:
@@ -385,9 +385,9 @@ class AudioEncoder:
     def create_uptranscoded_files(self, max_workers: int | None = None) -> None:
         """
         Create uptranscoded FLAC files from MP3 files.
-        
+
         This creates MP3→FLAC conversions for training the uptranscode detector.
-        
+
         Args:
             max_workers: Maximum number of worker threads (None = CPU count - 1)
         """
@@ -503,7 +503,7 @@ class AudioEncoder:
                 str(output_file)
             ]
 
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -599,16 +599,16 @@ def main():
 Examples:
   # Migrate existing files to new structure
   python transcode.py --migrate
-  
+
   # Preview migration (dry run)
   python transcode.py --migrate --dry-run
-  
+
   # Create MP3 files only (Stage 1)
   python transcode.py --no-uptranscode
-  
-  # Create MP3 files and uptranscoded FLAC files (both stages)  
+
+  # Create MP3 files and uptranscoded FLAC files (both stages)
   python transcode.py
-  
+
   # Create only uptranscoded files (assuming MP3s already exist)
   python transcode.py --uptranscode-only
         """
@@ -709,10 +709,10 @@ Examples:
 def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
     """
     Migrate existing training data files from old structure to new structure.
-    
+
     Old structure: encoded/{128,192,256,320,v0,v2,v4}/
     New structure: encoded/lossy/{128,192,256,320,v0,v2,v4}/
-    
+
     Args:
         output_dir: Base output directory (usually 'encoded')
         dry_run: If True, only show what would be moved without actually moving
