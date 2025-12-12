@@ -33,8 +33,11 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     Worker function for joblib.Parallel - extracts features from audio file.
 
     Creates its own SpectrumAnalyzer and FileAnalyzer instances to avoid
-    sharing state across processes. Thread limiting is handled automatically
-    by joblib's loky backend.
+    sharing state across processes.
+
+    CRITICAL: Thread limits must be set at the START of each worker before
+    any heavy libraries are used, because numba/OpenBLAS/MKL initialize
+    their thread pools based on CPU count at first use.
 
     Args:
         file_path: Path to audio file to analyze
@@ -42,27 +45,35 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     Returns:
         Tuple of (file_path, features) where features is None if extraction failed
     """
-    try:
-        analyzer = SpectrumAnalyzer()
-        file_analyzer = FileAnalyzer()
+    # CRITICAL: Limit threads BEFORE any numba/scipy operations
+    # These libraries check CPU count and create thread pools on first use
+    import numba
+    from threadpoolctl import threadpool_limits
 
-        # Get metadata to determine is_vbr flag for accurate training labels
-        metadata = file_analyzer.analyze(file_path)
-        is_vbr = 1.0 if metadata and metadata.encoding_type == "VBR" else 0.0
+    numba.set_num_threads(1)
 
-        features = analyzer.analyze_file(file_path, is_vbr=is_vbr)
-        return (file_path, features)
-    except FileNotFoundError:
-        # File doesn't exist - expected in some cases, don't log
-        return (file_path, None)
-    except (ValueError, RuntimeError) as e:
-        # Audio format errors or analysis failures
-        logger.warning(f"Failed to extract features from {file_path}: {e}")
-        return (file_path, None)
-    except Exception as e:
-        # Unexpected errors - log for investigation
-        logger.error(f"Unexpected error extracting features from {file_path}: {e}", exc_info=True)
-        return (file_path, None)
+    with threadpool_limits(limits=1):
+        try:
+            analyzer = SpectrumAnalyzer()
+            file_analyzer = FileAnalyzer()
+
+            # Get metadata to determine is_vbr flag for accurate training labels
+            metadata = file_analyzer.analyze(file_path)
+            is_vbr = 1.0 if metadata and metadata.encoding_type == "VBR" else 0.0
+
+            features = analyzer.analyze_file(file_path, is_vbr=is_vbr)
+            return (file_path, features)
+        except FileNotFoundError:
+            # File doesn't exist - expected in some cases, don't log
+            return (file_path, None)
+        except (ValueError, RuntimeError) as e:
+            # Audio format errors or analysis failures
+            logger.warning(f"Failed to extract features from {file_path}: {e}")
+            return (file_path, None)
+        except Exception as e:
+            # Unexpected errors - log for investigation
+            logger.error(f"Unexpected error extracting features from {file_path}: {e}", exc_info=True)
+            return (file_path, None)
 
 
 class AudioQualityAnalyzer:
