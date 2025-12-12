@@ -3,38 +3,38 @@
 import logging
 import os
 import warnings
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
+from joblib import Parallel, delayed
 from tqdm import tqdm
 
 # Suppress numba FNV hashing warning (harmless, triggers once per worker process)
 warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
 
-from .classifier import QualityClassifier
-from .confidence import ConfidenceCalculator
-from .constants import (
+from .classifier import QualityClassifier  # noqa: E402
+from .confidence import ConfidenceCalculator  # noqa: E402
+from .constants import (  # noqa: E402
     BITRATE_MISMATCH_FACTOR,
     CLASS_LABELS,
     LOSSLESS_CONTAINERS,
     LOW_CONFIDENCE_THRESHOLD,
 )
-from .cutoff_detector import CutoffDetector
-from .file_analyzer import FileAnalyzer
-from .spectrum import SpectrumAnalyzer
-from .transcode_detector import TranscodeDetector
-from .types import AnalysisResult, SpectralFeatures
+from .cutoff_detector import CutoffDetector  # noqa: E402
+from .file_analyzer import FileAnalyzer  # noqa: E402
+from .spectrum import SpectrumAnalyzer  # noqa: E402
+from .transcode_detector import TranscodeDetector  # noqa: E402
+from .types import AnalysisResult, SpectralFeatures  # noqa: E402
 
 logger = logging.getLogger("beets.bitrater")
 
 
 def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | None]:
     """
-    Worker function for ProcessPoolExecutor - extracts features from audio file.
+    Worker function for joblib.Parallel - extracts features from audio file.
 
-    Must be at module level (not a method) to be picklable by multiprocessing.
     Creates its own SpectrumAnalyzer and FileAnalyzer instances to avoid
-    sharing state across processes.
+    sharing state across processes. Thread limiting is handled automatically
+    by joblib's loky backend.
 
     Args:
         file_path: Path to audio file to analyze
@@ -42,9 +42,6 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     Returns:
         Tuple of (file_path, features) where features is None if extraction failed
     """
-    # Suppress numba warning in worker process (before librosa import triggers it)
-    warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
-
     try:
         analyzer = SpectrumAnalyzer()
         file_analyzer = FileAnalyzer()
@@ -546,49 +543,32 @@ class AudioQualityAnalyzer:
         failed_extractions = []
         test_features: list[tuple[str, int, SpectralFeatures]] = []
 
-        # Determine workers
+        # Determine workers (use conservative default to prevent system overload)
         if num_workers is None:
-            workers = os.cpu_count() or 1
+            workers = self._get_default_workers()
         else:
             workers = num_workers
 
         logger.info("=" * 60)
-        logger.info("VALIDATION: PARALLEL FEATURE EXTRACTION (ProcessPoolExecutor)")
+        logger.info("VALIDATION: PARALLEL FEATURE EXTRACTION (joblib.Parallel)")
         logger.info(f"  Total files: {len(test_paths)}")
         logger.info(f"  Workers: {workers}")
         logger.info("=" * 60)
 
         extraction_start = time.time()
 
-        # Parallel feature extraction for test files
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(_extract_features_worker, path): (path, label)
-                for path, label in zip(test_paths, test_labels, strict=True)
-            }
+        # Parallel feature extraction for test files using joblib
+        results = Parallel(n_jobs=workers, backend="loky")(
+            delayed(_extract_features_worker)(path)
+            for path in tqdm(test_paths, desc="Extracting test features", unit="files")
+        )
 
-            with tqdm(
-                total=len(test_paths),
-                desc="Extracting test features",
-                unit="files",
-                dynamic_ncols=True,
-            ) as pbar:
-                for future in futures:
-                    file_path, features = future.result()
-                    _, true_label = futures[future]
-
-                    if features is not None:
-                        test_features.append((file_path, true_label, features))
-                    else:
-                        failed_extractions.append(file_path)
-
-                    elapsed = time.time() - extraction_start
-                    rate = len(test_features) / elapsed if elapsed > 0 else 0
-                    pbar.update(1)
-                    pbar.set_postfix({
-                        "rate": f"{rate:.1f} files/s",
-                        "failed": len(failed_extractions),
-                    })
+        # Process results
+        for (file_path, features), true_label in zip(results, test_labels, strict=True):
+            if features is not None:
+                test_features.append((file_path, true_label, features))
+            else:
+                failed_extractions.append(file_path)
 
         extraction_time = time.time() - extraction_start
 
@@ -612,7 +592,7 @@ class AudioQualityAnalyzer:
             unit="files",
             dynamic_ncols=True,
         ) as pbar:
-            for file_path, true_label, features in test_features:
+            for _file_path, true_label, features in test_features:
                 prediction = self.classifier.predict(features)
                 pred_label = CLASS_LABELS[prediction.format_type]
                 y_true.append(true_label)
@@ -746,9 +726,13 @@ class AudioQualityAnalyzer:
         return self.classifier.trained
 
     def _get_default_workers(self) -> int:
-        """Get default number of workers based on CPU count (80% of available cores)."""
+        """Get default number of workers based on CPU count (50% of available cores).
+
+        Conservative default to prevent system overload. Heavy parallel I/O
+        combined with CPU-intensive FFT work can stress the system.
+        """
         cpu_count = os.cpu_count() or 1
-        return max(1, int(cpu_count * 0.8))
+        return max(1, int(cpu_count * 0.5))
 
     def train_parallel(
         self,
@@ -757,11 +741,11 @@ class AudioQualityAnalyzer:
         save_path: Path | None = None,
     ) -> dict[str, int]:
         """
-        Train the classifier using parallel feature extraction with batch processing.
+        Train the classifier using parallel feature extraction.
 
-        Uses ProcessPoolExecutor for true parallelism (bypasses GIL) and processes
-        files in batches to avoid memory accumulation. Provides live progress bar
-        using tqdm.
+        Uses joblib.Parallel with loky backend for true parallelism. The loky
+        backend automatically limits threads in worker processes to prevent
+        oversubscription.
 
         Args:
             training_data: Dictionary mapping file paths to class labels (0-6)
@@ -776,57 +760,39 @@ class AudioQualityAnalyzer:
         if not training_data:
             raise ValueError("No training data provided")
 
-        # Use all available CPU cores for true parallelism
+        # Use conservative worker count to prevent system overload
         if num_workers is None:
-            workers = os.cpu_count() or 1
+            workers = self._get_default_workers()
         else:
             workers = num_workers
 
-        features_list: list[SpectralFeatures] = []
-        labels: list[int] = []
-        failed_files: list[str] = []
-
         logger.info("=" * 60)
-        logger.info("PARALLEL FEATURE EXTRACTION (ProcessPoolExecutor)")
+        logger.info("PARALLEL FEATURE EXTRACTION (joblib.Parallel)")
         logger.info(f"  Total files: {len(training_data)}")
         logger.info(f"  Workers: {workers}")
         logger.info("=" * 60)
 
         extraction_start = time.time()
 
-        # Process with ProcessPoolExecutor for CPU-bound FFT work
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            # Submit all tasks using module-level worker function (picklable)
-            futures = {
-                executor.submit(_extract_features_worker, file_path): (file_path, label)
-                for file_path, label in training_data.items()
-            }
+        # Process with joblib.Parallel - loky backend handles thread limiting
+        file_paths = list(training_data.keys())
+        results = Parallel(n_jobs=workers, backend="loky")(
+            delayed(_extract_features_worker)(file_path)
+            for file_path in tqdm(file_paths, desc="Extracting features", unit="files")
+        )
 
-            # Use tqdm for live progress feedback
-            with tqdm(
-                total=len(training_data),
-                desc="Extracting features",
-                unit="files",
-                dynamic_ncols=True,
-            ) as pbar:
-                for future in futures:
-                    file_path, features = future.result()
-                    label = futures[future][1]
+        # Process results
+        features_list: list[SpectralFeatures] = []
+        labels: list[int] = []
+        failed_files: list[str] = []
 
-                    if features is not None:
-                        features_list.append(features)
-                        labels.append(label)
-                    else:
-                        failed_files.append(file_path)
-
-                    # Update progress bar
-                    elapsed = time.time() - extraction_start
-                    rate = len(features_list) / elapsed if elapsed > 0 else 0
-                    pbar.update(1)
-                    pbar.set_postfix({
-                        "rate": f"{rate:.1f} files/s",
-                        "failed": len(failed_files),
-                    })
+        for file_path, features in results:
+            label = training_data[file_path]
+            if features is not None:
+                features_list.append(features)
+                labels.append(label)
+            else:
+                failed_files.append(file_path)
 
         extraction_time = time.time() - extraction_start
 

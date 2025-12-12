@@ -15,24 +15,24 @@ class TestDynamicWorkerCount:
         analyzer = AudioQualityAnalyzer()
         assert hasattr(analyzer, "_get_default_workers")
 
-    def test_default_workers_uses_80_percent_of_cpu_count(self) -> None:
-        """Default workers should be 80% of os.cpu_count()."""
+    def test_default_workers_uses_50_percent_of_cpu_count(self) -> None:
+        """Default workers should be 50% of os.cpu_count() (conservative to prevent overload)."""
         analyzer = AudioQualityAnalyzer()
 
         with patch("os.cpu_count", return_value=10):
             default_workers = analyzer._get_default_workers()
-            # 80% of 10 = 8
-            assert default_workers == 8
+            # 50% of 10 = 5
+            assert default_workers == 5
 
         with patch("os.cpu_count", return_value=16):
             default_workers = analyzer._get_default_workers()
-            # 80% of 16 = 12 (int truncation)
-            assert default_workers == 12
+            # 50% of 16 = 8
+            assert default_workers == 8
 
         with patch("os.cpu_count", return_value=4):
             default_workers = analyzer._get_default_workers()
-            # 80% of 4 = 3 (int truncation)
-            assert default_workers == 3
+            # 50% of 4 = 2
+            assert default_workers == 2
 
     def test_default_workers_minimum_one(self) -> None:
         """Default workers should be at least 1 even if cpu_count returns None."""
@@ -43,17 +43,17 @@ class TestDynamicWorkerCount:
             assert default_workers >= 1
 
     def test_default_workers_scales_with_cpu_count(self) -> None:
-        """Default workers should scale with available CPU cores at 80%."""
+        """Default workers should scale with available CPU cores at 50%."""
         analyzer = AudioQualityAnalyzer()
 
-        # Test with different CPU counts - should be 80% of each
+        # Test with different CPU counts - should be 50% of each
         with patch("os.cpu_count", return_value=4):
             workers_4 = analyzer._get_default_workers()
-            assert workers_4 == 3  # 80% of 4 = 3
+            assert workers_4 == 2  # 50% of 4 = 2
 
         with patch("os.cpu_count", return_value=8):
             workers_8 = analyzer._get_default_workers()
-            assert workers_8 == 6  # 80% of 8 = 6
+            assert workers_8 == 4  # 50% of 8 = 4
 
         # More CPUs should mean more workers
         assert workers_8 > workers_4
@@ -93,7 +93,7 @@ class TestParallelFeatureExtraction:
                 num_workers=2,
             )
 
-    @pytest.mark.skip(reason="ProcessPoolExecutor: instance mocks don't propagate to subprocesses")
+    @pytest.mark.skip(reason="joblib loky backend: instance mocks don't propagate to subprocesses")
     def test_train_parallel_uses_default_workers_when_none(self, tmp_path, sample_features):
         """train_parallel should use _get_default_workers when num_workers is None."""
         analyzer = AudioQualityAnalyzer()
@@ -126,7 +126,7 @@ class TestParallelFeatureExtraction:
         # Should have called _get_default_workers
         assert len(used_workers) > 0
 
-    @pytest.mark.skip(reason="ProcessPoolExecutor: instance mocks don't propagate to subprocesses")
+    @pytest.mark.skip(reason="joblib loky backend: instance mocks don't propagate to subprocesses")
     def test_train_parallel_with_explicit_workers(self, tmp_path, sample_features):
         """train_parallel should use explicit num_workers when provided."""
         analyzer = AudioQualityAnalyzer()
@@ -145,7 +145,7 @@ class TestParallelFeatureExtraction:
 
         assert analyzer.is_trained
 
-    @pytest.mark.skip(reason="ProcessPoolExecutor: instance mocks don't propagate to subprocesses")
+    @pytest.mark.skip(reason="joblib loky backend: instance mocks don't propagate to subprocesses")
     def test_train_parallel_with_mock_files(self, tmp_path, sample_features):
         """Parallel training should process files concurrently."""
         analyzer = AudioQualityAnalyzer()
@@ -199,9 +199,9 @@ class TestParallelFeatureExtraction:
 class TestParallelTrainingPerformance:
     """Tests for parallel training performance characteristics."""
 
-    @pytest.mark.skip(reason="ProcessPoolExecutor: instance mocks don't propagate to subprocesses")
-    def test_parallel_uses_multiple_threads(self, tmp_path, sample_features):
-        """Parallel training should actually use multiple threads."""
+    @pytest.mark.skip(reason="joblib loky backend: instance mocks don't propagate to subprocesses")
+    def test_parallel_uses_multiple_workers(self, tmp_path, sample_features):
+        """Parallel training should actually use multiple workers."""
         analyzer = AudioQualityAnalyzer()
 
         # Create enough files to warrant parallelization
@@ -228,7 +228,7 @@ class TestParallelTrainingPerformance:
         # (though not guaranteed to see all 4 due to scheduling)
         assert len(thread_ids) >= 1  # At minimum, work was done
 
-    @pytest.mark.skip(reason="ProcessPoolExecutor: instance mocks don't propagate to subprocesses")
+    @pytest.mark.skip(reason="joblib loky backend: instance mocks don't propagate to subprocesses")
     def test_train_parallel_returns_statistics(self, tmp_path, sample_features):
         """train_parallel should return training statistics like train()."""
         analyzer = AudioQualityAnalyzer()
@@ -288,8 +288,8 @@ class TestExtractFeaturesWorker:
         assert features is None
 
 
-class TestProcessPoolIntegration:
-    """Tests for ProcessPoolExecutor integration in train_parallel."""
+class TestJoblibIntegration:
+    """Tests for joblib.Parallel integration in train_parallel."""
 
     def test_train_parallel_returns_correct_structure(self, tmp_path) -> None:
         """train_parallel should return results with correct structure."""
@@ -303,7 +303,7 @@ class TestProcessPoolIntegration:
             f.write_bytes(b"fake audio content")
             files[str(f)] = i % 7
 
-        # Note: We don't mock because ProcessPoolExecutor uses new processes
+        # Note: We don't mock because joblib's loky backend uses new processes
         # Just verify the structure of returned stats
         try:
             result = analyzer.train_parallel(files, num_workers=1)

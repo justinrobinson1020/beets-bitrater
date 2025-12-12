@@ -1,9 +1,7 @@
 """Plugin interface for beets-bitrater."""
 
 import logging
-import threading
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +10,7 @@ from beets.dbcore import types
 from beets.library import Item, Library
 from beets.plugins import BeetsPlugin
 from beets.ui import Subcommand, UserError, decargs
+from joblib import Parallel, delayed
 
 from .analyzer import AudioQualityAnalyzer
 from .types import AnalysisResult
@@ -109,12 +108,15 @@ class BitraterPlugin(BeetsPlugin):
                 logger.info("No items to analyze")
                 return
 
-            # Configure threading
-            thread_count = opts.threads or self.config["threads"].get() or util.cpu_count()
+            # Configure threading (conservative default: 50% of CPUs to prevent system overload)
+            thread_count = opts.threads or self.config["threads"].get()
+            if thread_count is None:
+                cpu_count = util.cpu_count() or 1
+                thread_count = max(1, int(cpu_count * 0.5))
             # Validate thread count
-            if thread_count is None or thread_count < 1:
-                thread_count = util.cpu_count() or 1
-            thread_count = max(1, int(thread_count))
+            if thread_count < 1:
+                thread_count = 1
+            thread_count = int(thread_count)
 
             # Analyze files
             results = self._analyze_items(items, thread_count)
@@ -126,33 +128,33 @@ class BitraterPlugin(BeetsPlugin):
     def _analyze_items(
         self, items: Sequence[Item], thread_count: int
     ) -> list[AnalysisResult | None]:
-        """Analyze multiple items in parallel."""
+        """Analyze multiple items in parallel using joblib.
+
+        Uses threading backend to share the trained model in memory while
+        benefiting from joblib's automatic thread limiting via threadpoolctl.
+        """
         logger.info(f"Analyzing {len(items)} files using {thread_count} threads")
 
-        results: list[AnalysisResult | None] = [None] * len(items)
-        lock = threading.Lock()
-        progress = {"done": 0}
-        total = len(items)
+        # Extract paths - Item objects shouldn't be passed to parallel workers
+        paths = [str(item.path) for item in items]
 
-        def analyze_item(index_item: tuple) -> None:
-            index, item = index_item
-            try:
-                result = self.analyzer.analyze_file(str(item.path))
-                results[index] = result
-            except Exception as e:
-                logger.error(f"Error analyzing {item.path}: {e}")
-                results[index] = None
+        results = Parallel(n_jobs=thread_count, backend="threading")(
+            delayed(self._analyze_single_file)(path) for path in paths
+        )
 
-            with lock:
-                progress["done"] += 1
-                done = progress["done"]
-                if done % 10 == 0 or done == total:
-                    logger.info(f"Analyzed {done}/{total} files")
+        return list(results)
 
-        with ThreadPoolExecutor(max_workers=thread_count) as executor:
-            executor.map(analyze_item, enumerate(items))
+    def _analyze_single_file(self, file_path: str) -> AnalysisResult | None:
+        """Analyze a single audio file.
 
-        return results
+        Called by joblib workers - uses shared analyzer instance since
+        threading backend shares memory.
+        """
+        try:
+            return self.analyzer.analyze_file(file_path)
+        except Exception as e:
+            logger.error(f"Error analyzing {file_path}: {e}")
+            return None
 
     def _process_results(
         self,
@@ -225,10 +227,10 @@ class BitraterPlugin(BeetsPlugin):
         if train_workers is not None:
             try:
                 train_workers = max(1, int(train_workers))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
                 raise UserError(
                     f"Invalid thread count: {train_workers}. Must be a positive integer."
-                )
+                ) from e
 
         try:
             if opts.validate:
