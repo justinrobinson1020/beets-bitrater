@@ -259,18 +259,10 @@ class BitraterPlugin(BeetsPlugin):
             raise UserError(f"Training failed: {e}") from e
 
     def _enable_verbose_logging(self) -> None:
-        """Ensure INFO-level logs emit to stdout for training/analysis."""
-        handler_exists = any(
-            getattr(h, "_bitrater_verbose", False) for h in logger.handlers
-        )
-        if not handler_exists:
-            handler = logging.StreamHandler()
-            handler.setLevel(logging.INFO)
-            handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-            handler._bitrater_verbose = True  # type: ignore[attr-defined]
-            logger.addHandler(handler)
+        """Ensure INFO-level logs emit via beets' logging system."""
         logger.setLevel(logging.INFO)
         logger.propagate = True
+        # Don't add custom handler - use beets' coordinated output
 
     def _print_validation_results(self, metrics: dict) -> None:
         """Print validation results with accuracy metrics."""
