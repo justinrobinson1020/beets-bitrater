@@ -92,15 +92,12 @@ class FeatureCache:
         try:
             with self.metadata_lock:
                 metadata_copy = deepcopy(self.metadata)
-
-            # Write to temporary file
-            temp_path = self.metadata_path.with_suffix('.tmp')
-            with open(temp_path, 'w') as f:
-                json.dump(metadata_copy, f, indent=2)
-
-            # Atomic rename
-            temp_path.replace(self.metadata_path)
-
+                # Write to temporary file (inside lock to prevent race)
+                temp_path = self.metadata_path.with_suffix('.tmp')
+                with open(temp_path, 'w') as f:
+                    json.dump(metadata_copy, f, indent=2)
+                # Atomic rename (inside lock)
+                temp_path.replace(self.metadata_path)
         except Exception as e:
             logger.error(f"Error saving cache metadata: {e}")
 
@@ -216,5 +213,5 @@ class FeatureCache:
     def __del__(self):
         """Clean shutdown of worker thread."""
         self.worker_running = False
-        if hasattr(self, 'worker_thread'):
+        if hasattr(self, 'worker_thread') and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=1.0)

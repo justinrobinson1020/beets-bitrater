@@ -548,7 +548,8 @@ class AudioQualityAnalyzer:
         for idx, (path, true_label) in enumerate(zip(test_paths, test_labels, strict=True), 1):
             features = self.spectrum_analyzer.analyze_file(path)
             if features:
-                pred_label, _ = self.classifier.predict(features)
+                prediction = self.classifier.predict(features)
+                pred_label = CLASS_LABELS[prediction.format_type]
                 y_true.append(true_label)
                 y_pred.append(pred_label)
             else:
