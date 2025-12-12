@@ -3,6 +3,16 @@
 Based on D'Alessandro & Shi paper methodology, extended for lossless detection.
 """
 
+# CRITICAL: Set thread limits BEFORE any imports that load numba/scipy/librosa
+# These libraries initialize thread pools at import time based on CPU count.
+import os
+
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -324,8 +334,12 @@ class SpectrumAnalyzer:
             dtype=np.float32,
         )
 
-    def _extract_temporal_features(self, y: np.ndarray, sr: int, n_windows: int = 16) -> np.ndarray:
-        """Temporal descriptors to highlight VBR variability (length 8)."""
+    def _extract_temporal_features(self, y: np.ndarray, sr: int, n_windows: int = 8) -> np.ndarray:
+        """Temporal descriptors to highlight VBR variability (length 8).
+
+        Note: Reduced from 16 to 8 windows for performance (~50% fewer Welch calls)
+        while maintaining sufficient temporal resolution for VBR detection.
+        """
         if n_windows <= 0:
             return np.zeros(8, dtype=np.float32)
 
@@ -464,6 +478,60 @@ class SpectrumAnalyzer:
             ],
             dtype=np.float32,
         )
+
+    def _extract_ultrasonic_features(self, psd: np.ndarray, freqs: np.ndarray) -> np.ndarray:
+        """
+        Ultrasonic features for V0 vs LOSSLESS discrimination (length 4).
+
+        Features:
+        1. ultrasonic_variance: Variance in 20-22kHz (low for V0 noise floor, higher for lossless)
+        2. energy_ratio: Ratio of 20-22kHz to 18-20kHz energy (low for V0 shelf drop)
+        3. rolloff_sharpness: Max gradient in 18-21kHz transition zone (high for V0 encoder cutoff)
+        4. shelf_flatness: How uniform the 20-22kHz region is (high for V0 flat noise floor)
+        """
+        # Define frequency bands
+        sub_ultra_mask = (freqs >= 18000) & (freqs < 20000)   # 18-20 kHz
+        ultra_mask = (freqs >= 20000) & (freqs <= 22050)       # 20-22 kHz
+        transition_mask = (freqs >= 18000) & (freqs <= 21000)  # 18-21 kHz
+
+        # Check if we have data in the ultrasonic range
+        if not np.any(ultra_mask) or not np.any(sub_ultra_mask):
+            return np.zeros(4, dtype=np.float32)
+
+        psd_db = 10 * np.log10(psd + 1e-12)
+
+        # 1. Ultrasonic variance (in dB scale)
+        ultra_psd_db = psd_db[ultra_mask]
+        ultrasonic_variance = float(np.var(ultra_psd_db)) if len(ultra_psd_db) > 0 else 0.0
+
+        # 2. Energy ratio (linear scale)
+        sub_ultra_energy = np.mean(psd[sub_ultra_mask])
+        ultra_energy = np.mean(psd[ultra_mask])
+        # Avoid division by zero, clamp to reasonable range
+        energy_ratio = float(np.clip(ultra_energy / (sub_ultra_energy + 1e-12), 0.0, 10.0))
+
+        # 3. Rolloff sharpness (max absolute gradient in transition zone)
+        transition_psd_db = psd_db[transition_mask]
+        if len(transition_psd_db) > 1:
+            gradient = np.gradient(transition_psd_db)
+            rolloff_sharpness = float(np.max(np.abs(gradient)))
+        else:
+            rolloff_sharpness = 0.0
+
+        # 4. Shelf flatness (inverse of variance, normalized)
+        # High value = flat (V0 noise floor), Low value = varying (lossless content)
+        if len(ultra_psd_db) > 1:
+            ultra_std = float(np.std(ultra_psd_db))
+            shelf_flatness = 1.0 / (1.0 + ultra_std)
+        else:
+            shelf_flatness = 0.0
+
+        return np.array([
+            ultrasonic_variance,
+            energy_ratio,
+            rolloff_sharpness,
+            shelf_flatness,
+        ], dtype=np.float32)
 
     def _split_feature_vector(
         self, vector: np.ndarray, metadata: dict

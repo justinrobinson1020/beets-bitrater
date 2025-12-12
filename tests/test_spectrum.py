@@ -254,3 +254,66 @@ class TestUltrasonicFeatures:
         assert vector[171] == 2.0
         assert vector[172] == 3.0
         assert vector[173] == 4.0
+
+
+class TestExtractUltrasonicFeatures:
+    """Tests for _extract_ultrasonic_features method."""
+
+    @pytest.fixture
+    def analyzer(self):
+        """Create SpectrumAnalyzer with no cache."""
+        return SpectrumAnalyzer(cache_dir=None)
+
+    def test_returns_four_features(self, analyzer):
+        """Should return exactly 4 features."""
+        # Create mock PSD with frequencies up to 22050 Hz
+        freqs = np.linspace(0, 22050, 2048)
+        psd = np.ones_like(freqs) * 1e-6  # Flat spectrum
+
+        result = analyzer._extract_ultrasonic_features(psd, freqs)
+
+        assert result.shape == (4,)
+        assert result.dtype == np.float32
+
+    def test_v0_like_spectrum_high_shelf_flatness(self, analyzer):
+        """V0-like spectrum (hard cutoff) should have high shelf flatness."""
+        freqs = np.linspace(0, 22050, 2048)
+        psd = np.ones_like(freqs) * 1e-3
+        # Simulate V0 cutoff: drop to noise floor above 20kHz
+        psd[freqs > 20000] = 1e-10  # Flat noise floor
+
+        result = analyzer._extract_ultrasonic_features(psd, freqs)
+
+        # ultrasonic_variance should be low (flat noise floor)
+        assert result[0] < 1.0  # Low variance
+        # energy_ratio should be very low (hard shelf drop)
+        assert result[1] < 0.01
+        # shelf_flatness should be high (uniform noise floor)
+        assert result[3] > 0.5
+
+    def test_lossless_like_spectrum_low_shelf_flatness(self, analyzer):
+        """Lossless-like spectrum (content above 20kHz) should have low shelf flatness."""
+        freqs = np.linspace(0, 22050, 2048)
+        psd = np.ones_like(freqs) * 1e-3
+        # Simulate lossless: content continues above 20kHz with variation
+        psd[freqs > 20000] = 1e-4 + np.random.random(np.sum(freqs > 20000)) * 1e-4
+
+        result = analyzer._extract_ultrasonic_features(psd, freqs)
+
+        # ultrasonic_variance should be higher (varying content)
+        assert result[0] > 0.1  # Higher variance
+        # energy_ratio should be higher (content continues)
+        assert result[1] > 0.05
+        # shelf_flatness should be lower (not uniform)
+        assert result[3] < 0.8
+
+    def test_handles_empty_frequency_range(self, analyzer):
+        """Should handle edge case of missing frequency data gracefully."""
+        freqs = np.linspace(0, 15000, 1024)  # No ultrasonic data
+        psd = np.ones_like(freqs) * 1e-6
+
+        result = analyzer._extract_ultrasonic_features(psd, freqs)
+
+        assert result.shape == (4,)
+        # Should return zeros for missing data
+        assert np.allclose(result, 0.0)
