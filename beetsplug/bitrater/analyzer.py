@@ -533,54 +533,103 @@ class AudioQualityAnalyzer:
         else:
             self.train(train_data)
 
-        # Evaluate on test set
+        # Evaluate on test set - parallel feature extraction like training
         y_true = []
         y_pred = []
-        failed_predictions = []
+        failed_extractions = []
+        test_features: list[tuple[str, int, SpectralFeatures]] = []
+
+        # Determine workers
+        if num_workers is None:
+            workers = os.cpu_count() or 1
+        else:
+            workers = num_workers
 
         logger.info("=" * 60)
-        logger.info(f"VALIDATION: Evaluating on {len(test_paths)} test samples...")
+        logger.info("VALIDATION: PARALLEL FEATURE EXTRACTION (ProcessPoolExecutor)")
+        logger.info(f"  Total files: {len(test_paths)}")
+        logger.info(f"  Workers: {workers}")
         logger.info("=" * 60)
 
-        eval_start = time.time()
+        extraction_start = time.time()
+
+        # Parallel feature extraction for test files
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(_extract_features_worker, path): (path, label)
+                for path, label in zip(test_paths, test_labels, strict=True)
+            }
+
+            with tqdm(
+                total=len(test_paths),
+                desc="Extracting test features",
+                unit="files",
+                dynamic_ncols=True,
+            ) as pbar:
+                for future in futures:
+                    file_path, features = future.result()
+                    _, true_label = futures[future]
+
+                    if features is not None:
+                        test_features.append((file_path, true_label, features))
+                    else:
+                        failed_extractions.append(file_path)
+
+                    elapsed = time.time() - extraction_start
+                    rate = len(test_features) / elapsed if elapsed > 0 else 0
+                    pbar.update(1)
+                    pbar.set_postfix({
+                        "rate": f"{rate:.1f} files/s",
+                        "failed": len(failed_extractions),
+                    })
+
+        extraction_time = time.time() - extraction_start
+
+        logger.info("=" * 60)
+        logger.info("FEATURE EXTRACTION COMPLETE")
+        logger.info(f"  Duration: {extraction_time:.2f}s")
+        logger.info(f"  Success rate: {len(test_features)/len(test_paths)*100:.1f}% ({len(test_features)}/{len(test_paths)})")
+        logger.info(f"  Throughput: {len(test_features)/extraction_time:.1f} files/s")
+        logger.info("=" * 60)
+
+        # Run predictions on extracted features
+        logger.info("=" * 60)
+        logger.info(f"VALIDATION: Running predictions on {len(test_features)} samples...")
+        logger.info("=" * 60)
+
+        predict_start = time.time()
 
         with tqdm(
-            total=len(test_paths),
-            desc="Validating",
+            total=len(test_features),
+            desc="Predicting",
             unit="files",
             dynamic_ncols=True,
         ) as pbar:
-            for path, true_label in zip(test_paths, test_labels, strict=True):
-                features = self.spectrum_analyzer.analyze_file(path)
-                if features:
-                    prediction = self.classifier.predict(features)
-                    pred_label = CLASS_LABELS[prediction.format_type]
-                    y_true.append(true_label)
-                    y_pred.append(pred_label)
-                else:
-                    failed_predictions.append(path)
+            for file_path, true_label, features in test_features:
+                prediction = self.classifier.predict(features)
+                pred_label = CLASS_LABELS[prediction.format_type]
+                y_true.append(true_label)
+                y_pred.append(pred_label)
 
-                # Update progress bar
-                elapsed = time.time() - eval_start
+                elapsed = time.time() - predict_start
                 rate = len(y_true) / elapsed if elapsed > 0 else 0
                 pbar.update(1)
-                pbar.set_postfix({
-                    "rate": f"{rate:.1f} files/s",
-                    "failed": len(failed_predictions),
-                })
+                pbar.set_postfix({"rate": f"{rate:.1f} files/s"})
 
-        eval_time = time.time() - eval_start
+        predict_time = time.time() - predict_start
+        total_time = extraction_time + predict_time
 
         logger.info("=" * 60)
-        logger.info("VALIDATION EVALUATION COMPLETE")
-        logger.info(f"  Total time: {eval_time:.2f}s")
+        logger.info("VALIDATION COMPLETE")
+        logger.info(f"  Feature extraction: {extraction_time:.2f}s")
+        logger.info(f"  Predictions: {predict_time:.2f}s")
+        logger.info(f"  Total time: {total_time:.2f}s")
         logger.info(f"  Successful: {len(y_true)}/{len(test_paths)}")
-        logger.info(f"  Failed: {len(failed_predictions)}")
-        logger.info(f"  Average: {eval_time/len(test_paths):.3f}s per file")
-        if failed_predictions:
-            logger.warning(f"  Failed predictions: {failed_predictions[:3]}")
-            if len(failed_predictions) > 3:
-                logger.warning(f"  ... and {len(failed_predictions) - 3} more")
+        logger.info(f"  Failed extractions: {len(failed_extractions)}")
+        if failed_extractions:
+            logger.warning(f"  Failed files: {failed_extractions[:3]}")
+            if len(failed_extractions) > 3:
+                logger.warning(f"  ... and {len(failed_extractions) - 3} more")
         logger.info("=" * 60)
 
         # Calculate metrics
