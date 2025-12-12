@@ -543,25 +543,31 @@ class AudioQualityAnalyzer:
         logger.info("=" * 60)
 
         eval_start = time.time()
-        progress_interval = max(1, len(test_paths) // 10)  # Log every 10%
 
-        for idx, (path, true_label) in enumerate(zip(test_paths, test_labels, strict=True), 1):
-            features = self.spectrum_analyzer.analyze_file(path)
-            if features:
-                prediction = self.classifier.predict(features)
-                pred_label = CLASS_LABELS[prediction.format_type]
-                y_true.append(true_label)
-                y_pred.append(pred_label)
-            else:
-                failed_predictions.append(path)
-                logger.warning(f"Failed to extract features for validation: {path}")
+        with tqdm(
+            total=len(test_paths),
+            desc="Validating",
+            unit="files",
+            dynamic_ncols=True,
+        ) as pbar:
+            for path, true_label in zip(test_paths, test_labels, strict=True):
+                features = self.spectrum_analyzer.analyze_file(path)
+                if features:
+                    prediction = self.classifier.predict(features)
+                    pred_label = CLASS_LABELS[prediction.format_type]
+                    y_true.append(true_label)
+                    y_pred.append(pred_label)
+                else:
+                    failed_predictions.append(path)
 
-            # Progress logging
-            if idx % progress_interval == 0 or idx == len(test_paths):
-                pct = (idx / len(test_paths)) * 100
+                # Update progress bar
                 elapsed = time.time() - eval_start
-                rate = idx / elapsed if elapsed > 0 else 0
-                logger.info(f"Validation progress: {idx}/{len(test_paths)} ({pct:.0f}%) - {rate:.1f} files/s")
+                rate = len(y_true) / elapsed if elapsed > 0 else 0
+                pbar.update(1)
+                pbar.set_postfix({
+                    "rate": f"{rate:.1f} files/s",
+                    "failed": len(failed_predictions),
+                })
 
         eval_time = time.time() - eval_start
 
