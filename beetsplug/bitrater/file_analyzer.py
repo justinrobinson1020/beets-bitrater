@@ -10,7 +10,7 @@ from mutagen.wave import WAVE
 
 from .types import FileMetadata
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("beets.bitrater")
 
 
 class FileAnalyzer:
@@ -44,8 +44,16 @@ class FileAnalyzer:
                 # Try generic mutagen for other formats
                 return self._analyze_generic(path, file_format)
 
+        except (ValueError, KeyError, AttributeError) as e:
+            # Expected errors: unsupported format, corrupt metadata, missing tags
+            logger.warning(f"Could not extract metadata from {file_path}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error analyzing metadata for {file_path}: {e}")
+            # Unexpected errors - log for investigation
+            logger.error(
+                f"Unexpected error analyzing metadata for {file_path}: {e}",
+                exc_info=True,
+            )
             return None
 
     def _analyze_mp3(self, path: Path) -> FileMetadata:

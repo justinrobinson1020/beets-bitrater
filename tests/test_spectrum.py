@@ -10,12 +10,13 @@ from beetsplug.bitrater.constants import (
     SPECTRAL_PARAMS,
 )
 from beetsplug.bitrater.spectrum import SpectrumAnalyzer
+from beetsplug.bitrater.types import SpectralFeatures
 
 
 class TestSpectrumAnalyzer:
     """Tests for SpectrumAnalyzer class."""
 
-    def test_init(self):
+    def test_init(self) -> None:
         """Test analyzer initialization."""
         analyzer = SpectrumAnalyzer()
 
@@ -24,7 +25,7 @@ class TestSpectrumAnalyzer:
         assert analyzer.max_freq == SPECTRAL_PARAMS["max_freq"]
         assert analyzer.fft_size == SPECTRAL_PARAMS["fft_size"]
 
-    def test_band_frequencies(self):
+    def test_band_frequencies(self) -> None:
         """Test frequency band calculation."""
         analyzer = SpectrumAnalyzer()
 
@@ -42,25 +43,25 @@ class TestSpectrumAnalyzer:
         expected_width = (22050 - 16000) / 150
         assert band_width == pytest.approx(expected_width, rel=0.01)
 
-    def test_validate_audio_empty(self):
+    def test_validate_audio_empty(self) -> None:
         """Test validation rejects empty audio (0 samples)."""
         analyzer = SpectrumAnalyzer()
         assert analyzer._validate_audio(np.array([]), MINIMUM_SAMPLE_RATE) is False
 
-    def test_validate_audio_low_sample_rate(self):
+    def test_validate_audio_low_sample_rate(self) -> None:
         """Test validation rejects sample rate below MINIMUM_SAMPLE_RATE."""
         analyzer = SpectrumAnalyzer()
         y = np.random.rand(44100)  # 1 second of audio
         low_sample_rate = MINIMUM_SAMPLE_RATE - 1  # Just below threshold
         assert analyzer._validate_audio(y, low_sample_rate) is False
 
-    def test_validate_audio_at_minimum_sample_rate(self):
+    def test_validate_audio_at_minimum_sample_rate(self) -> None:
         """Test validation accepts audio at exactly MINIMUM_SAMPLE_RATE."""
         analyzer = SpectrumAnalyzer()
         y = np.random.rand(MINIMUM_SAMPLE_RATE)  # 1 second at minimum rate
         assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
-    def test_validate_audio_short_duration(self):
+    def test_validate_audio_short_duration(self) -> None:
         """Test validation rejects audio below MINIMUM_DURATION threshold."""
         analyzer = SpectrumAnalyzer()
         # Calculate samples just below the minimum duration
@@ -68,7 +69,7 @@ class TestSpectrumAnalyzer:
         y = np.random.rand(max(1, samples_below_threshold))
         assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is False
 
-    def test_validate_audio_at_minimum_duration(self):
+    def test_validate_audio_at_minimum_duration(self) -> None:
         """Test validation accepts audio at exactly MINIMUM_DURATION."""
         analyzer = SpectrumAnalyzer()
         # Calculate samples for exactly the minimum duration
@@ -76,13 +77,13 @@ class TestSpectrumAnalyzer:
         y = np.random.rand(samples_at_threshold)
         assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
-    def test_validate_audio_valid(self):
+    def test_validate_audio_valid(self) -> None:
         """Test validation accepts valid audio above all thresholds."""
         analyzer = SpectrumAnalyzer()
         y = np.random.rand(MINIMUM_SAMPLE_RATE)  # 1 second at minimum rate
         assert analyzer._validate_audio(y, MINIMUM_SAMPLE_RATE) is True
 
-    def test_extract_band_features_shape(self):
+    def test_extract_band_features_shape(self) -> None:
         """Test that extracted features have correct shape."""
         analyzer = SpectrumAnalyzer()
 
@@ -96,7 +97,7 @@ class TestSpectrumAnalyzer:
         assert features.shape == (150,)
         assert features.dtype == np.float32
 
-    def test_extract_band_features_normalized(self):
+    def test_extract_band_features_normalized(self) -> None:
         """Test that features are normalized to 0-1 range."""
         analyzer = SpectrumAnalyzer()
 
@@ -108,3 +109,119 @@ class TestSpectrumAnalyzer:
         assert features is not None
         assert np.all(features >= 0)
         assert np.all(features <= 1)
+
+
+class TestSpectrumAnalyzerIsVbr:
+    """Tests for SpectrumAnalyzer accepting and propagating is_vbr metadata."""
+
+    def test_analyze_file_accepts_is_vbr_parameter(self, tmp_path, monkeypatch) -> None:
+        """SpectrumAnalyzer.analyze_file should accept is_vbr parameter."""
+        analyzer = SpectrumAnalyzer()
+
+        # Mock librosa.load to return valid audio data
+        def mock_load(file_path, sr=None, mono=True):
+            return np.random.rand(44100), 44100  # 1 second at 44.1kHz
+
+        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+
+        # Create a dummy file
+        test_file = tmp_path / "test.mp3"
+        test_file.touch()
+
+        # Should accept is_vbr parameter without error
+        result = analyzer.analyze_file(str(test_file), is_vbr=1.0)
+
+        assert result is not None
+        assert result.is_vbr == 1.0
+
+    def test_analyze_file_is_vbr_defaults_to_zero(self, tmp_path, monkeypatch) -> None:
+        """SpectrumAnalyzer.analyze_file should default is_vbr to 0.0."""
+        analyzer = SpectrumAnalyzer()
+
+        def mock_load(file_path, sr=None, mono=True):
+            return np.random.rand(44100), 44100
+
+        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+
+        test_file = tmp_path / "test.mp3"
+        test_file.touch()
+
+        # Without is_vbr parameter, should default to 0.0
+        result = analyzer.analyze_file(str(test_file))
+
+        assert result is not None
+        assert result.is_vbr == 0.0
+
+    def test_analyze_file_propagates_is_vbr_cbr(self, tmp_path, monkeypatch) -> None:
+        """SpectrumAnalyzer should propagate is_vbr=0.0 for CBR files."""
+        analyzer = SpectrumAnalyzer()
+
+        def mock_load(file_path, sr=None, mono=True):
+            return np.random.rand(44100), 44100
+
+        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+
+        test_file = tmp_path / "cbr_192.mp3"
+        test_file.touch()
+
+        result = analyzer.analyze_file(str(test_file), is_vbr=0.0)
+
+        assert result is not None
+        assert result.is_vbr == 0.0
+
+    def test_analyze_file_propagates_is_vbr_vbr(self, tmp_path, monkeypatch) -> None:
+        """SpectrumAnalyzer should propagate is_vbr=1.0 for VBR files."""
+        analyzer = SpectrumAnalyzer()
+
+        def mock_load(file_path, sr=None, mono=True):
+            return np.random.rand(44100), 44100
+
+        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+
+        test_file = tmp_path / "vbr_v0.mp3"
+        test_file.touch()
+
+        result = analyzer.analyze_file(str(test_file), is_vbr=1.0)
+
+        assert result is not None
+        assert result.is_vbr == 1.0
+
+
+class TestSpectralFeaturesIsVbr:
+    """Tests for is_vbr field in SpectralFeatures for VBR/CBR discrimination."""
+
+    def test_spectral_features_has_is_vbr_field(self) -> None:
+        """SpectralFeatures should have is_vbr field for VBR/CBR metadata."""
+        features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000.0, 16040.0)] * 150,
+            is_vbr=1.0,
+        )
+        assert hasattr(features, "is_vbr")
+        assert features.is_vbr == 1.0
+
+    def test_spectral_features_is_vbr_defaults_to_zero(self) -> None:
+        """SpectralFeatures.is_vbr should default to 0.0 (CBR/unknown)."""
+        features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000.0, 16040.0)] * 150,
+        )
+        assert features.is_vbr == 0.0
+
+    def test_spectral_features_is_vbr_accepts_float(self) -> None:
+        """is_vbr field should accept float values 0.0 or 1.0."""
+        # VBR file
+        vbr_features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000.0, 16040.0)] * 150,
+            is_vbr=1.0,
+        )
+        assert vbr_features.is_vbr == 1.0
+
+        # CBR file
+        cbr_features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000.0, 16040.0)] * 150,
+            is_vbr=0.0,
+        )
+        assert cbr_features.is_vbr == 0.0

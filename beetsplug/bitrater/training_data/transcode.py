@@ -2,7 +2,6 @@
 
 import argparse
 import concurrent.futures
-import hashlib
 import logging
 import os
 import re
@@ -125,34 +124,12 @@ class AudioEncoder:
 
     def _collect_source_files(self) -> list[Path]:
         """Collect all valid source audio files."""
+        logger.info("Scanning for source files...")
         source_files = []
         for ext in [".flac", ".wav"]:
             source_files.extend(self.source_dir.glob(f"**/*{ext}"))
-
-        # Filter out duplicates based on content hash
-        unique_files = []
-        hashes = set()
-
-        for file in source_files:
-            file_hash = self._calculate_file_hash(file)
-            if file_hash not in hashes:
-                hashes.add(file_hash)
-                unique_files.append(file)
-            else:
-                logger.warning(f"Skipping duplicate file: {file}")
-
-        return unique_files
-
-    def _calculate_file_hash(self, file_path: Path, block_size: int = 65536) -> str:
-        """Calculate SHA-256 hash of file content."""
-        hasher = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            while True:
-                data = f.read(block_size)
-                if not data:
-                    break
-                hasher.update(data)
-        return hasher.hexdigest()
+        logger.info(f"Found {len(source_files)} audio files")
+        return source_files
 
     def _process_file(
         self, source_file: Path, max_workers: int, progress: "ProgressTracker"

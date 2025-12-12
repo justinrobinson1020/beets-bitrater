@@ -12,12 +12,29 @@ class SpectralFeatures:
     """
     Spectral features extracted from audio file.
 
-    150 PSD bands covering 16-22 kHz:
+    150 PSD bands covering 16-22 kHz plus encoder-agnostic extras:
     - Bands 0-99: 16-20 kHz (paper's bitrate detection range)
     - Bands 100-149: 20-22 kHz (ultrasonic for lossless detection)
+    - 6 cutoff features, 8 temporal features, 6 artifact features
+    - is_vbr metadata flag for VBR/CBR discrimination
     """
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
     frequency_bands: list[tuple[float, float]]  # (start_freq, end_freq) pairs
+    cutoff_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
+    temporal_features: np.ndarray = field(default_factory=lambda: np.zeros(8, dtype=np.float32))
+    artifact_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
+    is_vbr: float = 0.0  # 1.0 if VBR, 0.0 if CBR/ABR/unknown (from file metadata)
+
+    def as_vector(self) -> np.ndarray:
+        """Flatten all features into a single vector for the classifier."""
+        base = [
+            np.asarray(self.features, dtype=np.float32).flatten(),
+            np.asarray(self.cutoff_features, dtype=np.float32).flatten(),
+            np.asarray(self.temporal_features, dtype=np.float32).flatten(),
+            np.asarray(self.artifact_features, dtype=np.float32).flatten(),
+            np.array([self.is_vbr], dtype=np.float32),
+        ]
+        return np.concatenate(base)
 
 
 @dataclass

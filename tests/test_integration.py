@@ -11,7 +11,7 @@ from beetsplug.bitrater.transcode_detector import TranscodeDetector
 class TestFullPipeline:
     """Test complete transcode detection pipeline."""
 
-    def test_128_to_flac_detection_pipeline(self):
+    def test_128_to_flac_detection_pipeline(self) -> None:
         """Full pipeline should detect 128 kbps source in FLAC container."""
         # Simulate 128 kbps spectral signature
         # 4096 points gives ~5.4 Hz resolution for 22050 Hz Nyquist
@@ -50,7 +50,7 @@ class TestFullPipeline:
         assert transcode_result.quality_gap == expected_gap
         assert transcode_result.transcoded_from == "128"
 
-    def test_genuine_lossless_pipeline(self):
+    def test_genuine_lossless_pipeline(self) -> None:
         """Full pipeline should correctly identify genuine lossless."""
         # Simulate lossless spectral signature (full spectrum)
         freqs = np.linspace(0, 22050, 4096)

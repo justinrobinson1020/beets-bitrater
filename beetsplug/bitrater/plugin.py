@@ -80,6 +80,11 @@ class BitraterPlugin(BeetsPlugin):
         analyze_cmd.parser.add_option(
             "--training-dir", help="path to training data directory"
         )
+        analyze_cmd.parser.add_option(
+            "--validate",
+            action="store_true",
+            help="validate model accuracy with train/test split (80/20)",
+        )
         analyze_cmd.func = self.analyze_command
         return [analyze_cmd]
 
@@ -106,6 +111,10 @@ class BitraterPlugin(BeetsPlugin):
 
             # Configure threading
             thread_count = opts.threads or self.config["threads"].get() or util.cpu_count()
+            # Validate thread count
+            if thread_count is None or thread_count < 1:
+                thread_count = util.cpu_count() or 1
+            thread_count = max(1, int(thread_count))
 
             # Analyze files
             results = self._analyze_items(items, thread_count)
@@ -196,6 +205,9 @@ class BitraterPlugin(BeetsPlugin):
 
     def _train_classifier(self, opts: Any) -> None:
         """Train classifier using known-good files from training directory."""
+        if opts.verbose:
+            self._enable_verbose_logging()
+
         # Get training directory from options or config
         training_dir_str = opts.training_dir or self.config["training_dir"].get()
         if not training_dir_str:
@@ -208,24 +220,120 @@ class BitraterPlugin(BeetsPlugin):
         if not training_dir.exists():
             raise UserError(f"Training directory not found: {training_dir}")
 
-        logger.info(f"Training classifier from {training_dir}...")
+        # Validate and normalize thread count
+        train_workers = getattr(opts, "threads", None)
+        if train_workers is not None:
+            try:
+                train_workers = max(1, int(train_workers))
+            except (ValueError, TypeError):
+                raise UserError(
+                    f"Invalid thread count: {train_workers}. Must be a positive integer."
+                )
 
         try:
-            # Train using directory structure
-            stats = self.analyzer.train_from_directory(training_dir)
+            if opts.validate:
+                # Validation mode: 80/20 split, report metrics
+                logger.info(f"Validating classifier with data from {training_dir}...")
+                metrics = self.analyzer.validate_from_directory(
+                    training_dir, num_workers=train_workers
+                )
+                self._print_validation_results(metrics)
+            else:
+                # Normal training mode: use all data
+                logger.info(f"Training classifier from {training_dir}...")
+                stats = self.analyzer.train_from_directory(
+                    training_dir, num_workers=train_workers
+                )
 
-            logger.info(
-                f"Training complete: {stats['successful']}/{stats['total_files']} files processed"
-            )
+                logger.info(
+                    f"Training complete: {stats['successful']}/{stats['total_files']} files processed"
+                )
 
-            # Save model if requested
-            if opts.save_model:
-                save_path = Path(opts.save_model)
-                self.analyzer.save_model(save_path)
-                logger.info(f"Saved trained model to {save_path}")
+                # Save model if requested
+                if opts.save_model:
+                    save_path = Path(opts.save_model)
+                    self.analyzer.save_model(save_path)
+                    logger.info(f"Saved trained model to {save_path}")
 
         except Exception as e:
             raise UserError(f"Training failed: {e}") from e
+
+    def _enable_verbose_logging(self) -> None:
+        """Ensure INFO-level logs emit to stdout for training/analysis."""
+        handler_exists = any(
+            getattr(h, "_bitrater_verbose", False) for h in logger.handlers
+        )
+        if not handler_exists:
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.INFO)
+            handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+            handler._bitrater_verbose = True  # type: ignore[attr-defined]
+            logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = True
+
+    def _print_validation_results(self, metrics: dict) -> None:
+        """Print validation results with accuracy metrics."""
+        print("\n" + "=" * 60)
+        print("MODEL VALIDATION RESULTS")
+        print("=" * 60)
+
+        print(f"\nDataset: {metrics['total_samples']} samples")
+        print(f"Training set: {metrics['train_samples']} ({metrics['train_pct']:.0%})")
+        print(f"Test set: {metrics['test_samples']} ({metrics['test_pct']:.0%})")
+
+        print(f"\n{'='*60}")
+        print(f"OVERALL ACCURACY: {metrics['accuracy']:.1%}")
+        print(f"{'='*60}")
+
+        # Per-class metrics
+        print("\nPer-Class Results:")
+        print("-" * 60)
+        print(f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
+        print("-" * 60)
+
+        for class_name, class_metrics in metrics["per_class"].items():
+            print(
+                f"{class_name:<12} "
+                f"{class_metrics['precision']:>10.1%} "
+                f"{class_metrics['recall']:>10.1%} "
+                f"{class_metrics['f1']:>10.1%} "
+                f"{class_metrics['support']:>10}"
+            )
+
+        print("-" * 60)
+
+        # Confusion matrix
+        print("\nConfusion Matrix:")
+        print("-" * 60)
+        cm = metrics["confusion_matrix"]
+        class_names = metrics["class_names"]
+
+        # Header
+        print(f"{'Actual/Pred':<12}", end="")
+        for name in class_names:
+            print(f"{name:>8}", end="")
+        print()
+
+        # Rows
+        for i, actual_name in enumerate(class_names):
+            print(f"{actual_name:<12}", end="")
+            for j in range(len(class_names)):
+                print(f"{cm[i][j]:>8}", end="")
+            print()
+
+        print("\n" + "=" * 60)
+
+        # Comparison with paper
+        print("\nComparison with D'Alessandro & Shi (2009):")
+        print("  Paper accuracy: 97%")
+        print(f"  Our accuracy:   {metrics['accuracy']:.1%}")
+        if metrics['accuracy'] >= 0.95:
+            print("  ✓ Matches or exceeds paper's results")
+        elif metrics['accuracy'] >= 0.90:
+            print("  ⚠ Slightly below paper's results (acceptable)")
+        else:
+            print("  ✗ Below expected accuracy - investigate")
 
     def _print_analysis(self, item: Item, result: AnalysisResult) -> None:
         """Print detailed analysis results for an item."""

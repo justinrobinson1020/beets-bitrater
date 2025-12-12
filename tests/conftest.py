@@ -36,7 +36,11 @@ def sample_features() -> SpectralFeatures:
 
     return SpectralFeatures(
         features=features,
-        frequency_bands=frequency_bands
+        frequency_bands=frequency_bands,
+        cutoff_features=np.zeros(6, dtype=np.float32),
+        temporal_features=np.zeros(8, dtype=np.float32),
+        artifact_features=np.zeros(6, dtype=np.float32),
+        is_vbr=0.0,  # Simulating CBR file
     )
 
 
@@ -59,7 +63,11 @@ def lossless_features() -> SpectralFeatures:
 
     return SpectralFeatures(
         features=features,
-        frequency_bands=frequency_bands
+        frequency_bands=frequency_bands,
+        cutoff_features=np.zeros(6, dtype=np.float32),
+        temporal_features=np.zeros(8, dtype=np.float32),
+        artifact_features=np.zeros(6, dtype=np.float32),
+        is_vbr=0.0,  # Lossless is not VBR
     )
 
 
@@ -69,32 +77,117 @@ def temp_model_path(tmp_path: Path) -> Path:
     return tmp_path / "test_model.pkl"
 
 
+class AnalysisResultBuilder:
+    """Builder for creating AnalysisResult objects with sensible defaults."""
+
+    def __init__(self) -> None:
+        """Initialize with default values."""
+        self.data = {
+            "filename": "test.mp3",
+            "file_format": "mp3",
+            "original_format": "320",
+            "original_bitrate": 320,
+            "confidence": 0.95,
+            "is_transcode": False,
+            "stated_class": "320",
+            "detected_cutoff": 20500,
+            "quality_gap": 0,
+            "stated_bitrate": 320,
+            "warnings": [],
+        }
+
+    def with_low_confidence(self) -> "AnalysisResultBuilder":
+        """Set confidence below threshold."""
+        self.data["confidence"] = 0.5
+        self.data["warnings"] = ["Low confidence in detection: 50.0%"]
+        return self
+
+    def with_transcode(self, transcoded_from: str = "128") -> "AnalysisResultBuilder":
+        """Set up as a transcode."""
+        self.data["is_transcode"] = True
+        self.data["original_format"] = transcoded_from
+        self.data["original_bitrate"] = 128
+        self.data["stated_class"] = "LOSSLESS"
+        self.data["detected_cutoff"] = 16000
+        self.data["quality_gap"] = 6
+        self.data["transcoded_from"] = transcoded_from
+        self.data["file_format"] = "flac"
+        self.data["filename"] = "fake_lossless.flac"
+        self.data["stated_bitrate"] = None
+        self.data["warnings"] = [f"File appears to be transcoded from {transcoded_from}"]
+        return self
+
+    def with_bitrate_mismatch(self) -> "AnalysisResultBuilder":
+        """Set up with bitrate mismatch."""
+        self.data["original_format"] = "128"
+        self.data["original_bitrate"] = 128
+        self.data["stated_bitrate"] = 320
+        self.data["stated_class"] = "320"
+        self.data["detected_cutoff"] = 16000
+        self.data["filename"] = "upsampled.mp3"
+        self.data["warnings"] = ["Stated bitrate (320 kbps) much higher than detected (128 kbps)"]
+        return self
+
+    def build(self) -> "AnalysisResult":
+        """Build and return AnalysisResult."""
+        from beetsplug.bitrater.types import AnalysisResult
+        return AnalysisResult(**self.data)
+
+
 @pytest.fixture
-def training_features() -> tuple[list[SpectralFeatures], list[int]]:
-    """Create a set of training features for different classes."""
+def analysis_result_builder() -> AnalysisResultBuilder:
+    """Provide an AnalysisResult builder for tests."""
+    return AnalysisResultBuilder()
+
+
+@pytest.fixture
+def training_features() -> tuple[list, list]:
+    """Create a set of training features for different classes.
+    
+    Classes (by index):
+    - 0: 128 kbps - sharp cutoff early
+    - 1: V2 - cutoff at ~18.5 kHz
+    - 2: 192 kbps - moderate cutoff
+    - 3: V0 - high bitrate VBR
+    - 4: 256 kbps - good quality
+    - 5: 320 kbps - best CBR quality
+    - 6: Lossless - full spectrum
+    """
+    from enum import IntEnum
+    
+    class TrainingClass(IntEnum):
+        """Class indices for training data."""
+        CBR_128 = 0
+        VBR_V2 = 1
+        CBR_192 = 2
+        VBR_V0 = 3
+        CBR_256 = 4
+        CBR_320 = 5
+        LOSSLESS = 6
+    
     num_bands = SPECTRAL_PARAMS["num_bands"]
     features_list = []
     labels = []
 
     # Create 10 samples per class (7 classes)
-    for class_idx in range(7):
+    for class_idx in TrainingClass:
         for _ in range(10):
             features = np.random.rand(num_bands).astype(np.float32)
 
-            # Add class-specific characteristics
-            if class_idx == 0:  # 128 kbps - sharp cutoff early
+            # Add class-specific characteristics based on bitrate cutoff frequencies
+            if class_idx == TrainingClass.CBR_128:  # 128 kbps - sharp cutoff early
                 features[60:] *= 0.1
-            elif class_idx == 1:  # V2 - cutoff at ~18.5 kHz
+            elif class_idx == TrainingClass.VBR_V2:  # V2 - cutoff at ~18.5 kHz
                 features[65:] *= 0.12
-            elif class_idx == 2:  # 192 kbps
+            elif class_idx == TrainingClass.CBR_192:  # 192 kbps
                 features[70:] *= 0.15
-            elif class_idx == 3:  # V0
+            elif class_idx == TrainingClass.VBR_V0:  # V0
                 features[75:] *= 0.18
-            elif class_idx == 4:  # 256 kbps
+            elif class_idx == TrainingClass.CBR_256:  # 256 kbps
                 features[80:] *= 0.2
-            elif class_idx == 5:  # 320 kbps
+            elif class_idx == TrainingClass.CBR_320:  # 320 kbps
                 features[90:] *= 0.25
-            else:  # Lossless - content in ultrasonic
+            elif class_idx == TrainingClass.LOSSLESS:  # Lossless - content in ultrasonic
                 features[100:] *= 0.8
 
             min_freq = SPECTRAL_PARAMS["min_freq"]
@@ -106,10 +199,17 @@ def training_features() -> tuple[list[SpectralFeatures], list[int]]:
                 for i in range(num_bands)
             ]
 
+            # V2 and V0 are VBR, others are CBR
+            is_vbr = 1.0 if class_idx in [TrainingClass.VBR_V2, TrainingClass.VBR_V0] else 0.0
+
             features_list.append(SpectralFeatures(
                 features=features,
-                frequency_bands=frequency_bands
+                frequency_bands=frequency_bands,
+                cutoff_features=np.zeros(6, dtype=np.float32),
+                temporal_features=np.zeros(8, dtype=np.float32),
+                artifact_features=np.zeros(6, dtype=np.float32),
+                is_vbr=is_vbr,
             ))
-            labels.append(class_idx)
+            labels.append(int(class_idx))
 
     return features_list, labels

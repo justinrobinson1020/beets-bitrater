@@ -11,7 +11,7 @@ from beetsplug.bitrater.constants import BITRATE_CLASSES
 class TestQualityClassifier:
     """Tests for QualityClassifier class."""
 
-    def test_init(self):
+    def test_init(self) -> None:
         """Test classifier initialization with paper's SVM parameters."""
         classifier = QualityClassifier()
 
@@ -25,15 +25,24 @@ class TestQualityClassifier:
         assert svm.gamma == 1
         assert svm.C == 1
 
-    def test_extract_features(self, sample_features):
-        """Test feature extraction returns correct shape."""
+    def test_extract_features(self, sample_features: "SpectralFeatures") -> None:
+        """Test feature extraction returns full feature vector."""
         classifier = QualityClassifier()
         features = classifier._extract_features(sample_features)
 
-        assert features.shape == (150,)
+        # 150 PSD + 6 cutoff + 8 temporal + 6 artifact + 1 is_vbr = 171
+        assert features.shape == (171,)
         assert features.dtype == np.float32
 
-    def test_train(self, training_features, temp_model_path):
+    def test_extract_features_includes_is_vbr(self, sample_features: "SpectralFeatures") -> None:
+        """Test that extracted features include is_vbr at the end."""
+        classifier = QualityClassifier()
+        features = classifier._extract_features(sample_features)
+
+        # Last feature should be the is_vbr value from SpectralFeatures
+        assert features[-1] == sample_features.is_vbr
+
+    def test_train(self, training_features: tuple[list, list], temp_model_path) -> None:
         """Test classifier training."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -42,7 +51,7 @@ class TestQualityClassifier:
 
         assert classifier.trained is True
 
-    def test_train_saves_model(self, training_features, temp_model_path):
+    def test_train_saves_model(self, training_features: tuple[list, list], temp_model_path) -> None:
         """Test that training can save model to file."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -51,28 +60,28 @@ class TestQualityClassifier:
 
         assert temp_model_path.exists()
 
-    def test_train_empty_data_raises(self):
+    def test_train_empty_data_raises(self) -> None:
         """Test that training with empty data raises error."""
         classifier = QualityClassifier()
 
         with pytest.raises(ValueError):
             classifier.train([], [])
 
-    def test_train_mismatched_lengths_raises(self, sample_features):
+    def test_train_mismatched_lengths_raises(self, sample_features: "SpectralFeatures") -> None:
         """Test that mismatched features/labels raises error."""
         classifier = QualityClassifier()
 
         with pytest.raises(ValueError):
             classifier.train([sample_features], [0, 1])
 
-    def test_predict_untrained_raises(self, sample_features):
+    def test_predict_untrained_raises(self, sample_features: "SpectralFeatures") -> None:
         """Test that prediction without training raises error."""
         classifier = QualityClassifier()
 
         with pytest.raises(RuntimeError):
             classifier.predict(sample_features)
 
-    def test_predict_returns_prediction(self, training_features, sample_features):
+    def test_predict_returns_prediction(self, training_features: tuple[list, list], sample_features: "SpectralFeatures") -> None:
         """Test that prediction returns ClassifierPrediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -85,7 +94,7 @@ class TestQualityClassifier:
         assert 0 <= prediction.confidence <= 1
         assert isinstance(prediction.probabilities, dict)
 
-    def test_save_and_load_model(self, training_features, temp_model_path, sample_features):
+    def test_save_and_load_model(self, training_features: tuple[list, list], temp_model_path, sample_features: "SpectralFeatures") -> None:
         """Test model persistence."""
         # Train and save
         classifier1 = QualityClassifier()
@@ -106,7 +115,7 @@ class TestQualityClassifier:
         assert pred1.format_type == pred2.format_type
         assert pred1.estimated_bitrate == pred2.estimated_bitrate
 
-    def test_predict_batch(self, training_features, sample_features, lossless_features):
+    def test_predict_batch(self, training_features: tuple[list, list], sample_features: "SpectralFeatures", lossless_features: "SpectralFeatures") -> None:
         """Test batch prediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -122,14 +131,14 @@ class TestQualityClassifier:
 class TestBitrateClasses:
     """Tests for bitrate class configuration."""
 
-    def test_seven_classes(self):
+    def test_seven_classes(self) -> None:
         """There should be exactly 7 quality classes."""
         assert len(BITRATE_CLASSES) == 7
 
-    def test_class_indices(self):
+    def test_class_indices(self) -> None:
         """Class indices should be 0-6."""
         assert set(BITRATE_CLASSES.keys()) == {0, 1, 2, 3, 4, 5, 6}
 
-    def test_v2_class_exists(self):
+    def test_v2_class_exists(self) -> None:
         """V2 class should exist at index 1."""
         assert BITRATE_CLASSES[1] == ("V2", 190)

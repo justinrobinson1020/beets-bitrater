@@ -7,7 +7,7 @@ from beetsplug.bitrater.transcode_detector import TranscodeDetector
 class TestTranscodeDetector:
     """Test transcode detection based on quality ranking."""
 
-    def test_flac_from_128_is_transcode(self):
+    def test_flac_from_128_is_transcode(self) -> None:
         """FLAC with 128 kbps content should be detected as transcode."""
         detector = TranscodeDetector()
 
@@ -21,7 +21,7 @@ class TestTranscodeDetector:
         assert result.quality_gap == expected_gap
         assert result.transcoded_from == "128"
 
-    def test_mp3_320_from_192_is_transcode(self):
+    def test_mp3_320_from_192_is_transcode(self) -> None:
         """320 kbps MP3 with 192 kbps content is transcode."""
         detector = TranscodeDetector()
 
@@ -35,7 +35,7 @@ class TestTranscodeDetector:
         assert result.quality_gap == expected_gap
         assert result.transcoded_from == "192"
 
-    def test_genuine_320_is_not_transcode(self):
+    def test_genuine_320_is_not_transcode(self) -> None:
         """Genuine 320 kbps file is not a transcode."""
         detector = TranscodeDetector()
 
@@ -48,7 +48,7 @@ class TestTranscodeDetector:
         assert result.quality_gap == 0
         assert result.transcoded_from is None
 
-    def test_192_detected_as_320_is_not_transcode(self):
+    def test_192_detected_as_320_is_not_transcode(self) -> None:
         """File claiming lower quality than detected is not transcode."""
         detector = TranscodeDetector()
 
@@ -58,4 +58,4 @@ class TestTranscodeDetector:
         )
 
         assert result.is_transcode is False
-        assert result.quality_gap == 0  # No gap when detected > stated
+        assert result.quality_gap == 0  # No gap when detected > stated  # No gap when detected > stated
