@@ -1,10 +1,12 @@
 """Thread-safe cache system with improved concurrency handling."""
 
+import fcntl
 import hashlib
 import json
 import logging
 import queue
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +53,17 @@ class FeatureCache:
         """Get path for cached features file."""
         return self.features_dir / f"{file_hash}.npz"
 
+    @contextmanager
+    def _file_lock(self, lock_path: Path):
+        """Cross-process file lock using fcntl."""
+        lock_file = open(lock_path, 'w')
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+
     def _metadata_worker(self):
         """Worker thread to handle metadata updates."""
         while self.worker_running:
@@ -73,30 +86,30 @@ class FeatureCache:
                 logger.error(f"Error in metadata worker: {e}")
 
     def _load_metadata(self) -> None:
-        """Load cache metadata from disk with timeout."""
+        """Load cache metadata from disk with cross-process locking."""
+        lock_path = self.metadata_path.with_suffix('.lock')
         try:
-            with self.metadata_lock:
-                if self.metadata_path.exists():
-                    try:
-                        with open(self.metadata_path) as f:
+            if self.metadata_path.exists():
+                with self._file_lock(lock_path):
+                    with open(self.metadata_path) as f:
+                        with self.metadata_lock:
                             self.metadata = json.load(f)
-                    except Exception as e:
-                        logger.error(f"Error loading cache metadata: {e}")
-                        self.metadata = {}
+            else:
+                self.metadata = {}
         except Exception as e:
-            logger.error(f"Error acquiring lock for metadata load: {e}")
+            logger.error(f"Error loading cache metadata: {e}")
             self.metadata = {}
 
     def _save_metadata(self) -> None:
-        """Save cache metadata to disk with timeout."""
+        """Save cache metadata to disk with cross-process locking."""
+        lock_path = self.metadata_path.with_suffix('.lock')
         try:
-            with self.metadata_lock:
-                metadata_copy = deepcopy(self.metadata)
-                # Write to temporary file (inside lock to prevent race)
+            with self._file_lock(lock_path):
+                with self.metadata_lock:
+                    metadata_copy = deepcopy(self.metadata)
                 temp_path = self.metadata_path.with_suffix('.tmp')
                 with open(temp_path, 'w') as f:
                     json.dump(metadata_copy, f, indent=2)
-                # Atomic rename (inside lock)
                 temp_path.replace(self.metadata_path)
         except Exception as e:
             logger.error(f"Error saving cache metadata: {e}")
