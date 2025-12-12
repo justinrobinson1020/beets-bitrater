@@ -41,18 +41,11 @@ class FeatureCache:
         # Start worker thread
         self.worker_thread.start()
 
-    def _get_file_hash(self, file_path: Path) -> str:
-        """Calculate SHA-256 hash of file content."""
-        hasher = hashlib.sha256()
-        # Use buffer to handle large files efficiently
-        buffer_size = 65536  # 64kb chunks
-        with open(file_path, 'rb') as f:
-            while True:
-                data = f.read(buffer_size)
-                if not data:
-                    break
-                hasher.update(data)
-        return hasher.hexdigest()
+    def _get_file_key(self, file_path: Path) -> str:
+        """Generate cache key from path, mtime, and size (no file read)."""
+        stat = file_path.stat()
+        key_data = f"{file_path.resolve()}|{stat.st_mtime}|{stat.st_size}"
+        return hashlib.sha256(key_data.encode()).hexdigest()
 
     def _get_cache_path(self, file_hash: str) -> Path:
         """Get path for cached features file."""
@@ -114,7 +107,7 @@ class FeatureCache:
     def get_features(self, file_path: Path) -> tuple[np.ndarray, dict] | None:
         """Get cached features with timeout."""
         try:
-            file_hash = self._get_file_hash(file_path)
+            file_hash = self._get_file_key(file_path)
             cache_path = self._get_cache_path(file_hash)
 
             if not cache_path.exists():
@@ -153,7 +146,7 @@ class FeatureCache:
     ) -> None:
         """Save features with queued metadata update."""
         try:
-            file_hash = self._get_file_hash(file_path)
+            file_hash = self._get_file_key(file_path)
             cache_path = self._get_cache_path(file_hash)
 
             # Save feature data
