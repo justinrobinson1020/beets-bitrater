@@ -291,6 +291,60 @@ class TestExtractFeaturesWorker:
 class TestJoblibIntegration:
     """Tests for joblib.Parallel integration in train_parallel."""
 
+    def test_plugin_analyze_uses_threading_backend(self) -> None:
+        """Plugin _analyze_items should use joblib.Parallel with threading backend."""
+        from unittest.mock import MagicMock
+
+        from beetsplug.bitrater.plugin import BitraterPlugin
+
+        # Mock joblib.Parallel to capture the call
+        with patch("beetsplug.bitrater.plugin.Parallel") as mock_parallel:
+            mock_parallel.return_value = MagicMock(return_value=[None, None])
+
+            plugin = BitraterPlugin()
+
+            # Create mock items with paths
+            mock_item1 = MagicMock()
+            mock_item1.path = "/fake/path1.mp3"
+            mock_item2 = MagicMock()
+            mock_item2.path = "/fake/path2.mp3"
+
+            plugin._analyze_items([mock_item1, mock_item2], thread_count=4)
+
+            # Verify Parallel was called with threading backend
+            mock_parallel.assert_called()
+            call_kwargs = mock_parallel.call_args[1]
+            assert call_kwargs.get("backend") == "threading", "plugin should use threading backend"
+            assert call_kwargs.get("n_jobs") == 4, "n_jobs should match thread_count"
+
+    def test_train_parallel_uses_loky_backend(self, tmp_path) -> None:
+        """train_parallel should use joblib.Parallel with loky backend."""
+        from unittest.mock import MagicMock
+
+        # Create minimal files
+        files = {}
+        for i in range(2):
+            f = tmp_path / f"test_{i}.mp3"
+            f.write_bytes(b"fake audio")
+            files[str(f)] = i % 7
+
+        # Mock joblib.Parallel to capture the call
+        with patch("beetsplug.bitrater.analyzer.Parallel") as mock_parallel:
+            # Make Parallel return an empty list to avoid further processing
+            mock_parallel.return_value = MagicMock(return_value=[])
+
+            analyzer = AudioQualityAnalyzer()
+            try:
+                analyzer.train_parallel(files, num_workers=2)
+            except (ValueError, StopIteration):
+                pass  # Expected - empty results from mock
+
+            # Verify Parallel was called with loky backend
+            mock_parallel.assert_called()
+            call_kwargs = mock_parallel.call_args[1]
+            assert call_kwargs.get("backend") == "loky", "train_parallel should use loky backend"
+            assert call_kwargs.get("n_jobs") == 2, "n_jobs should match num_workers"
+
     def test_train_parallel_returns_correct_structure(self, tmp_path) -> None:
         """train_parallel should return results with correct structure."""
         analyzer = AudioQualityAnalyzer()
