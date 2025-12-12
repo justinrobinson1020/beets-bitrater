@@ -11,6 +11,7 @@ from beets.library import Item, Library
 from beets.plugins import BeetsPlugin
 from beets.ui import Subcommand, UserError, decargs
 from joblib import Parallel, delayed
+from threadpoolctl import threadpool_limits
 
 from .analyzer import AudioQualityAnalyzer
 from .types import AnalysisResult
@@ -130,8 +131,9 @@ class BitraterPlugin(BeetsPlugin):
     ) -> list[AnalysisResult | None]:
         """Analyze multiple items in parallel using joblib.
 
-        Uses threading backend to share the trained model in memory while
-        benefiting from joblib's automatic thread limiting via threadpoolctl.
+        Uses threading backend to share the trained model in memory.
+        Thread limiting must happen INSIDE each worker since numba's
+        thread settings are per-thread.
         """
         logger.info(f"Analyzing {len(items)} files using {thread_count} threads")
 
@@ -148,13 +150,20 @@ class BitraterPlugin(BeetsPlugin):
         """Analyze a single audio file.
 
         Called by joblib workers - uses shared analyzer instance since
-        threading backend shares memory.
+        threading backend shares memory. Thread limits must be set HERE
+        (inside the worker) because numba's settings are per-thread.
         """
-        try:
-            return self.analyzer.analyze_file(file_path)
-        except Exception as e:
-            logger.error(f"Error analyzing {file_path}: {e}")
-            return None
+        import numba
+
+        # Limit threads INSIDE worker - numba settings are per-thread
+        numba.set_num_threads(1)
+
+        with threadpool_limits(limits=1, user_api="blas"):
+            try:
+                return self.analyzer.analyze_file(file_path)
+            except Exception as e:
+                logger.error(f"Error analyzing {file_path}: {e}")
+                return None
 
     def _process_results(
         self,
