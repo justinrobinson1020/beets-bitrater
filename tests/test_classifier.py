@@ -30,8 +30,8 @@ class TestQualityClassifier:
         classifier = QualityClassifier()
         features = classifier._extract_features(sample_features)
 
-        # 150 PSD + 6 cutoff + 8 temporal + 6 artifact + 1 is_vbr = 171
-        assert features.shape == (171,)
+        # 150 PSD + 6 cutoff + 8 temporal + 6 artifact + 4 ultrasonic + 1 is_vbr = 175
+        assert features.shape == (175,)
         assert features.dtype == np.float32
 
     def test_extract_features_includes_is_vbr(self, sample_features: "SpectralFeatures") -> None:

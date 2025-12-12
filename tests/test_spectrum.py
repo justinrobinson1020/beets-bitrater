@@ -225,3 +225,32 @@ class TestSpectralFeaturesIsVbr:
             is_vbr=0.0,
         )
         assert cbr_features.is_vbr == 0.0
+
+
+class TestUltrasonicFeatures:
+    """Tests for ultrasonic feature extraction."""
+
+    def test_spectral_features_has_ultrasonic_field(self):
+        """SpectralFeatures should have ultrasonic_features field."""
+        features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000, 16040)] * 150,
+        )
+        assert hasattr(features, 'ultrasonic_features')
+        assert features.ultrasonic_features.shape == (4,)
+
+    def test_as_vector_includes_ultrasonic_features(self):
+        """as_vector should include ultrasonic_features in output."""
+        features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000, 16040)] * 150,
+            ultrasonic_features=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        )
+        vector = features.as_vector()
+        # 150 + 6 + 8 + 6 + 4 + 1 = 175 features
+        assert vector.shape == (175,)
+        # Ultrasonic features should be at position 170-173 (before is_vbr)
+        assert vector[170] == 1.0
+        assert vector[171] == 2.0
+        assert vector[172] == 3.0
+        assert vector[173] == 4.0
