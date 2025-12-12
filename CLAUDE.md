@@ -220,3 +220,13 @@ Test files are organized under `tests/`:
 - `data/`: Test audio files (original and transcoded)
 
 The plugin uses spectral analysis techniques from research on MP3 quality detection through frequency spectrum analysis.
+
+## Development Workflow
+
+**Always use superpowers skills for development tasks.** Before implementing features, fixing bugs, or making significant changes:
+
+1. Check available skills and use them when applicable
+2. Use `superpowers:brainstorming` before coding new features
+3. Use `superpowers:test-driven-development` for implementations
+4. Use `superpowers:systematic-debugging` when investigating issues
+5. Use `superpowers:verification-before-completion` before claiming work is done
