@@ -145,6 +145,71 @@ bitrater:
     training_dir: null            # Training data directory
 ```
 
+## Methodology & Performance Baseline
+
+### Research Foundation
+
+This project implements MP3 bitrate detection based on the paper **"MP3 Bit Rate Quality Detection through Frequency Spectrum Analysis"** by D'Alessandro & Shi (2009). The approach uses power spectral density (PSD) analysis of high-frequency bands to detect compression artifacts characteristic of different encoding quality levels.
+
+**Key methodological alignment:**
+- Train/test split: **20% train / 80% test** (matches paper's 500/2012 sample split)
+- SVM configuration: **Polynomial kernel** with degree=2, γ=1, C=1
+- Feature engineering: PSD-based frequency analysis with encoder-agnostic features
+
+### Classification Problem
+
+**7-class quality detection:**
+1. 128 kbps CBR (lowest quality)
+2. V2 VBR preset (~170-210 kbps)
+3. 192 kbps CBR
+4. V0 VBR preset (~220-260 kbps)
+5. 256 kbps CBR
+6. 320 kbps CBR (highest lossy quality)
+7. LOSSLESS (FLAC/WAV)
+
+This extends the paper's 5-class problem (128, 192, 224, 256, 320) by adding VBR presets and lossless detection, which are critical for real-world music library analysis.
+
+### Feature Set (171 total features)
+
+**Power Spectral Density (150 features):**
+- 150 mel-scale bands covering 16-22 kHz frequency range
+- Captures compression artifacts and frequency cutoffs
+
+**Cutoff Detection (6 features):**
+- Encoder-agnostic frequency transition detection
+- Identifies sharp rolloffs characteristic of lossy encoders
+
+**Temporal Features (8 features):**
+- VBR vs CBR discrimination
+- Bitrate variability analysis
+
+**Artifact Features (6 features):**
+- Transcoding detection
+- Compression artifact quantification
+
+**Format Flag (1 feature):**
+- Binary is_vbr indicator
+
+### Current Performance Baseline
+
+**Overall Accuracy: ~74%** (Target: 85%+)
+
+**Per-class accuracy:**
+- 128 kbps: ~100% (excellent)
+- V2 VBR: ~67% (needs improvement)
+- 192 kbps: ~54% (needs improvement)
+- V0 VBR: ~41% (needs improvement)
+- 256 kbps: ~97% (excellent)
+- 320 kbps: ~97% (excellent)
+- LOSSLESS: ~62% (needs improvement)
+
+**Key challenges:**
+- VBR preset confusion (V2 ↔ 192, V0 ↔ 256)
+- LOSSLESS vs 320 kbps separation (requires 20-22 kHz analysis)
+- Limited training data for middle-quality classes
+
+The polynomial kernel (d=2) is specifically chosen to capture quadratic feature interactions between PSD bands, which better models how frequency cutoffs manifest compared to the more flexible but overfitting-prone RBF kernel.
+
 ### Testing
 
 Test files are organized under `tests/`:
