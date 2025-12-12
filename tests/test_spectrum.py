@@ -317,3 +317,25 @@ class TestExtractUltrasonicFeatures:
         assert result.shape == (4,)
         # Should return zeros for missing data
         assert np.allclose(result, 0.0)
+
+    def test_analyze_file_includes_ultrasonic_features(self, tmp_path, monkeypatch):
+        """analyze_file should populate ultrasonic_features."""
+        analyzer = SpectrumAnalyzer(cache_dir=None)
+
+        # Mock librosa.load to return valid audio data
+        def mock_load(file_path, sr=None, mono=True):
+            return np.random.rand(44100), 44100  # 1 second at 44.1kHz
+
+        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+
+        # Create a dummy file
+        test_file = tmp_path / "test.mp3"
+        test_file.touch()
+
+        result = analyzer.analyze_file(str(test_file))
+
+        assert result is not None
+        assert hasattr(result, 'ultrasonic_features')
+        assert result.ultrasonic_features.shape == (4,)
+        # Should have some values (may be zero for simple random signal)
+        assert result.ultrasonic_features.dtype == np.float32

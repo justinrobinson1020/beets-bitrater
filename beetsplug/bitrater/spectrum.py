@@ -100,9 +100,9 @@ class SpectrumAnalyzer:
                     # Validate cached features match current config
                     if (
                         metadata.get("n_bands") == self.num_bands
-                        and metadata.get("approach") == "encoder_agnostic_v2"
+                        and metadata.get("approach") == "encoder_agnostic_v3"
                     ):
-                        psd_bands, cutoff_feats, temporal_feats, artifact_feats = (
+                        psd_bands, cutoff_feats, temporal_feats, artifact_feats, ultrasonic_feats = (
                             self._split_feature_vector(features, metadata)
                         )
                         return SpectralFeatures(
@@ -113,6 +113,7 @@ class SpectrumAnalyzer:
                             cutoff_features=cutoff_feats,
                             temporal_features=temporal_feats,
                             artifact_features=artifact_feats,
+                            ultrasonic_features=ultrasonic_feats,
                             is_vbr=is_vbr,
                         )
                     # Cache miss due to config change - recompute
@@ -141,6 +142,7 @@ class SpectrumAnalyzer:
             artifact_features = self._extract_artifact_features(
                 psd, freqs, cutoff_features
             )
+            ultrasonic_features = self._extract_ultrasonic_features(psd, freqs)
 
             # Flatten for caching (exclude is_vbr because it comes from metadata)
             combined_features = np.concatenate(
@@ -149,6 +151,7 @@ class SpectrumAnalyzer:
                     cutoff_features.astype(np.float32),
                     temporal_features.astype(np.float32),
                     artifact_features.astype(np.float32),
+                    ultrasonic_features.astype(np.float32),
                 ]
             )
 
@@ -158,10 +161,11 @@ class SpectrumAnalyzer:
                 "n_bands": self.num_bands,
                 "band_frequencies": self._band_frequencies,
                 "creation_date": datetime.now().isoformat(),
-                "approach": "encoder_agnostic_v2",
+                "approach": "encoder_agnostic_v3",
                 "cutoff_len": len(cutoff_features),
                 "temporal_len": len(temporal_features),
                 "artifact_len": len(artifact_features),
+                "ultrasonic_len": len(ultrasonic_features),
             }
 
             # Cache the features
@@ -174,6 +178,7 @@ class SpectrumAnalyzer:
                 cutoff_features=cutoff_features,
                 temporal_features=temporal_features,
                 artifact_features=artifact_features,
+                ultrasonic_features=ultrasonic_features,
                 is_vbr=is_vbr,
             )
 
@@ -535,31 +540,37 @@ class SpectrumAnalyzer:
 
     def _split_feature_vector(
         self, vector: np.ndarray, metadata: dict
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split cached feature vector into component arrays."""
         psd_len = metadata.get("n_bands", self.num_bands)
-        cutoff_len = metadata.get("cutoff_len", 0)
-        temporal_len = metadata.get("temporal_len", 0)
-        artifact_len = metadata.get("artifact_len", 0)
+        cutoff_len = metadata.get("cutoff_len", 6)
+        temporal_len = metadata.get("temporal_len", 8)
+        artifact_len = metadata.get("artifact_len", 6)
+        ultrasonic_len = metadata.get("ultrasonic_len", 4)
 
         psd_end = psd_len
         cutoff_end = psd_end + cutoff_len
         temporal_end = cutoff_end + temporal_len
         artifact_end = temporal_end + artifact_len
+        ultrasonic_end = artifact_end + ultrasonic_len
 
         psd_bands = vector[:psd_end]
-        cutoff_feats = vector[psd_end:cutoff_end] if cutoff_len else np.zeros(0, dtype=np.float32)
+        cutoff_feats = vector[psd_end:cutoff_end] if cutoff_len else np.zeros(6, dtype=np.float32)
         temporal_feats = (
-            vector[cutoff_end:temporal_end] if temporal_len else np.zeros(0, dtype=np.float32)
+            vector[cutoff_end:temporal_end] if temporal_len else np.zeros(8, dtype=np.float32)
         )
         artifact_feats = (
-            vector[temporal_end:artifact_end] if artifact_len else np.zeros(0, dtype=np.float32)
+            vector[temporal_end:artifact_end] if artifact_len else np.zeros(6, dtype=np.float32)
+        )
+        ultrasonic_feats = (
+            vector[artifact_end:ultrasonic_end] if ultrasonic_len else np.zeros(4, dtype=np.float32)
         )
         return (
             np.asarray(psd_bands, dtype=np.float32),
             np.asarray(cutoff_feats, dtype=np.float32),
             np.asarray(temporal_feats, dtype=np.float32),
             np.asarray(artifact_feats, dtype=np.float32),
+            np.asarray(ultrasonic_feats, dtype=np.float32),
         )
 
     def _validate_audio(self, y: np.ndarray, sr: int) -> bool:
