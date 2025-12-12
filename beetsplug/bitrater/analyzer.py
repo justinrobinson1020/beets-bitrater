@@ -2,10 +2,14 @@
 
 import logging
 import os
+import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 from tqdm import tqdm
+
+# Suppress numba FNV hashing warning (harmless, triggers once per worker process)
+warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
 
 from .classifier import QualityClassifier
 from .confidence import ConfidenceCalculator
@@ -38,6 +42,9 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     Returns:
         Tuple of (file_path, features) where features is None if extraction failed
     """
+    # Suppress numba warning in worker process (before librosa import triggers it)
+    warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
+
     try:
         analyzer = SpectrumAnalyzer()
         file_analyzer = FileAnalyzer()
