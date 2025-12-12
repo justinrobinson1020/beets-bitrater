@@ -419,7 +419,7 @@ class AudioQualityAnalyzer:
     def validate_from_directory(
         self,
         training_dir: Path,
-        test_size: float = 0.2,
+        test_size: float = 0.8,
         random_state: int = 42,
         num_workers: int | None = None,
         use_parallel: bool | None = None,
@@ -433,7 +433,7 @@ class AudioQualityAnalyzer:
 
         Args:
             training_dir: Path to training data directory
-            test_size: Fraction of data to use for testing (default: 0.2)
+            test_size: Fraction of data to use for testing (default: 0.8)
             random_state: Random seed for reproducibility (default: 42)
             num_workers: Optional number of workers for parallel feature extraction
             use_parallel: Force parallel (True) or sequential (False). Defaults to True unless

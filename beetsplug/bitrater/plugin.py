@@ -83,7 +83,7 @@ class BitraterPlugin(BeetsPlugin):
         analyze_cmd.parser.add_option(
             "--validate",
             action="store_true",
-            help="validate model accuracy with train/test split (80/20)",
+            help="validate model accuracy with train/test split (20/80)",
         )
         analyze_cmd.func = self.analyze_command
         return [analyze_cmd]
@@ -232,7 +232,7 @@ class BitraterPlugin(BeetsPlugin):
 
         try:
             if opts.validate:
-                # Validation mode: 80/20 split, report metrics
+                # Validation mode: 20/80 split, report metrics
                 logger.info(f"Validating classifier with data from {training_dir}...")
                 metrics = self.analyzer.validate_from_directory(
                     training_dir, num_workers=train_workers
