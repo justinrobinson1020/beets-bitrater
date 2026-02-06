@@ -253,6 +253,20 @@ class TestParallelTrainingPerformance:
 class TestExtractFeaturesWorker:
     """Tests for the _extract_features_worker function."""
 
+    @pytest.fixture(autouse=True)
+    def reset_worker_state(self):
+        """Reset worker globals before each test."""
+        import beetsplug.bitrater.analyzer as analyzer_module
+        # Reset the worker singleton state
+        analyzer_module._worker_initialized = False
+        analyzer_module._worker_analyzer = None
+        analyzer_module._worker_file_analyzer = None
+        yield
+        # Clean up after test
+        analyzer_module._worker_initialized = False
+        analyzer_module._worker_analyzer = None
+        analyzer_module._worker_file_analyzer = None
+
     def test_extract_features_worker_returns_tuple(self, sample_features: "SpectralFeatures", tmp_path) -> None:
         """Worker function should return (file_path, features) tuple for valid file."""
         from beetsplug.bitrater.analyzer import _extract_features_worker
@@ -262,7 +276,8 @@ class TestExtractFeaturesWorker:
         audio_file.write_bytes(b"fake audio")
 
         # Mock the SpectrumAnalyzer to return features
-        with patch("beetsplug.bitrater.analyzer.SpectrumAnalyzer") as mock_spectrum:
+        # Patch at the source module since worker uses lazy import
+        with patch("beetsplug.bitrater.spectrum.SpectrumAnalyzer") as mock_spectrum:
             mock_instance = mock_spectrum.return_value
             mock_instance.analyze_file.return_value = sample_features
 
@@ -328,22 +343,30 @@ class TestJoblibIntegration:
             f.write_bytes(b"fake audio")
             files[str(f)] = i % 7
 
-        # Mock joblib.Parallel to capture the call
-        with patch("beetsplug.bitrater.analyzer.Parallel") as mock_parallel:
-            # Make Parallel return an empty list to avoid further processing
-            mock_parallel.return_value = MagicMock(return_value=[])
+        # Mock parallel_config and Parallel to verify configuration
+        with patch("beetsplug.bitrater.analyzer.parallel_config") as mock_config:
+            with patch("beetsplug.bitrater.analyzer.Parallel") as mock_parallel:
+                # Make Parallel return an empty list to avoid further processing
+                mock_parallel.return_value = MagicMock(return_value=[])
+                mock_config.return_value.__enter__ = MagicMock()
+                mock_config.return_value.__exit__ = MagicMock()
 
-            analyzer = AudioQualityAnalyzer()
-            try:
-                analyzer.train_parallel(files, num_workers=2)
-            except (ValueError, StopIteration):
-                pass  # Expected - empty results from mock
+                analyzer = AudioQualityAnalyzer()
+                try:
+                    analyzer.train_parallel(files, num_workers=2)
+                except (ValueError, StopIteration):
+                    pass  # Expected - empty results from mock
 
-            # Verify Parallel was called with loky backend
-            mock_parallel.assert_called()
-            call_kwargs = mock_parallel.call_args[1]
-            assert call_kwargs.get("backend") == "loky", "train_parallel should use loky backend"
-            assert call_kwargs.get("n_jobs") == 2, "n_jobs should match num_workers"
+                # Verify parallel_config was called with loky backend
+                mock_config.assert_called()
+                config_kwargs = mock_config.call_args[1]
+                assert config_kwargs.get("backend") == "loky", "train_parallel should use loky backend"
+                assert config_kwargs.get("inner_max_num_threads") == 1, "Should limit inner threads"
+
+                # Verify Parallel n_jobs matches num_workers
+                mock_parallel.assert_called()
+                call_kwargs = mock_parallel.call_args[1]
+                assert call_kwargs.get("n_jobs") == 2, "n_jobs should match num_workers"
 
     def test_train_parallel_returns_correct_structure(self, tmp_path) -> None:
         """train_parallel should return results with correct structure."""

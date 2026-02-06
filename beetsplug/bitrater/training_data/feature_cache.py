@@ -34,6 +34,10 @@ class FeatureCache:
         self.worker_thread = threading.Thread(target=self._metadata_worker, daemon=True)
         self.worker_running = True
 
+        # Cached lock file handle for metadata (avoids open/close per operation)
+        self._metadata_lock_path = self.metadata_path.with_suffix('.lock')
+        self._metadata_lock_file: Any = None
+
         # Create cache directories
         self.features_dir.mkdir(parents=True, exist_ok=True)
 
@@ -55,14 +59,26 @@ class FeatureCache:
 
     @contextmanager
     def _file_lock(self, lock_path: Path):
-        """Cross-process file lock using fcntl."""
-        lock_file = open(lock_path, 'w')
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            lock_file.close()
+        """Cross-process file lock using fcntl with cached file handle."""
+        # Use cached handle for metadata lock path (most common case)
+        if lock_path == self._metadata_lock_path:
+            if self._metadata_lock_file is None:
+                self._metadata_lock_file = open(lock_path, 'w')
+            lock_file = self._metadata_lock_file
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        else:
+            # Fallback for other lock paths
+            lock_file = open(lock_path, 'w')
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
 
     def _metadata_worker(self):
         """Worker thread to handle metadata updates."""
@@ -104,9 +120,11 @@ class FeatureCache:
         """Save cache metadata to disk with cross-process locking."""
         lock_path = self.metadata_path.with_suffix('.lock')
         try:
+            # Deepcopy OUTSIDE lock to minimize critical section time
+            with self.metadata_lock:
+                metadata_copy = deepcopy(self.metadata)
+
             with self._file_lock(lock_path):
-                with self.metadata_lock:
-                    metadata_copy = deepcopy(self.metadata)
                 temp_path = self.metadata_path.with_suffix('.tmp')
                 with open(temp_path, 'w') as f:
                     json.dump(metadata_copy, f, indent=2)
@@ -159,9 +177,9 @@ class FeatureCache:
             file_hash = self._get_file_key(file_path)
             cache_path = self._get_cache_path(file_hash)
 
-            # Save feature data
+            # Save feature data (uncompressed is faster, small files don't benefit much)
             metadata_arr = np.array(metadata, dtype=object)
-            np.savez_compressed(
+            np.savez(
                 cache_path,
                 features=features,
                 metadata=metadata_arr
@@ -224,7 +242,13 @@ class FeatureCache:
             return {}
 
     def __del__(self):
-        """Clean shutdown of worker thread."""
+        """Clean shutdown of worker thread and cached file handles."""
         self.worker_running = False
         if hasattr(self, 'worker_thread') and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=1.0)
+        # Close cached lock file handle
+        if hasattr(self, '_metadata_lock_file') and self._metadata_lock_file is not None:
+            try:
+                self._metadata_lock_file.close()
+            except Exception:
+                pass

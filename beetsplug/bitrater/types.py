@@ -16,7 +16,8 @@ class SpectralFeatures:
     - Bands 0-99: 16-20 kHz (paper's bitrate detection range)
     - Bands 100-149: 20-22 kHz (ultrasonic for lossless detection)
     - 6 cutoff features, 8 temporal features, 6 artifact features
-    - 4 ultrasonic features for V0 vs LOSSLESS discrimination
+    - 6 SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
+    - 4 rolloff features (slope, total_drop, ratio_early, ratio_late)
     - is_vbr metadata flag for VBR/CBR discrimination
     """
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
@@ -24,7 +25,8 @@ class SpectralFeatures:
     cutoff_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
     temporal_features: np.ndarray = field(default_factory=lambda: np.zeros(8, dtype=np.float32))
     artifact_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
-    ultrasonic_features: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
+    sfb21_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
+    rolloff_features: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
     is_vbr: float = 0.0  # 1.0 if VBR, 0.0 if CBR/ABR/unknown (from file metadata)
 
     def as_vector(self) -> np.ndarray:
@@ -34,7 +36,8 @@ class SpectralFeatures:
             np.asarray(self.cutoff_features, dtype=np.float32).flatten(),
             np.asarray(self.temporal_features, dtype=np.float32).flatten(),
             np.asarray(self.artifact_features, dtype=np.float32).flatten(),
-            np.asarray(self.ultrasonic_features, dtype=np.float32).flatten(),
+            np.asarray(self.sfb21_features, dtype=np.float32).flatten(),
+            np.asarray(self.rolloff_features, dtype=np.float32).flatten(),
             np.array([self.is_vbr], dtype=np.float32),
         ]
         return np.concatenate(base)

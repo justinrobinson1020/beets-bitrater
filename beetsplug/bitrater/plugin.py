@@ -83,7 +83,7 @@ class BitraterPlugin(BeetsPlugin):
         analyze_cmd.parser.add_option(
             "--validate",
             action="store_true",
-            help="validate model accuracy with train/test split (20/80)",
+            help="validate model accuracy with train/test split (80/20)",
         )
         analyze_cmd.func = self.analyze_command
         return [analyze_cmd]
@@ -140,6 +140,9 @@ class BitraterPlugin(BeetsPlugin):
         # Extract paths - Item objects shouldn't be passed to parallel workers
         paths = [str(item.path) for item in items]
 
+        # Use threading backend to share the trained model in memory
+        # Thread limiting happens inside _analyze_single_file via numba.set_num_threads(1)
+        # and threadpool_limits (threading backend doesn't support inner_max_num_threads)
         results = Parallel(n_jobs=thread_count, backend="threading")(
             delayed(self._analyze_single_file)(path) for path in paths
         )

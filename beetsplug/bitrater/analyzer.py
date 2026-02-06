@@ -1,77 +1,126 @@
 """Audio quality analyzer - orchestrates spectral analysis and classification."""
 
-import logging
+from __future__ import annotations
+
+# CRITICAL: Set thread limits BEFORE any imports that load numba/scipy/librosa
+# These libraries initialize thread pools at import time based on CPU count.
 import os
+
+# Hard clamp ALL threading env vars before ANY imports
+_THREAD_ENV = {
+    "OMP_NUM_THREADS": "1",
+    "OMP_DYNAMIC": "FALSE",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "BLIS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",  # macOS Accelerate
+    "NUMEXPR_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "KMP_BLOCKTIME": "0",
+}
+for _k, _v in _THREAD_ENV.items():
+    os.environ.setdefault(_k, _v)
+
+import logging
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_config
 from tqdm import tqdm
 
 # Suppress numba FNV hashing warning (harmless, triggers once per worker process)
 warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
 
-from .classifier import QualityClassifier  # noqa: E402
-from .confidence import ConfidenceCalculator  # noqa: E402
-from .constants import (  # noqa: E402
+# Import constants (lightweight, no numpy/scipy)
+from .constants import (
     BITRATE_MISMATCH_FACTOR,
     CLASS_LABELS,
     LOSSLESS_CONTAINERS,
     LOW_CONFIDENCE_THRESHOLD,
 )
-from .cutoff_detector import CutoffDetector  # noqa: E402
-from .file_analyzer import FileAnalyzer  # noqa: E402
-from .spectrum import SpectrumAnalyzer  # noqa: E402
-from .transcode_detector import TranscodeDetector  # noqa: E402
-from .types import AnalysisResult, SpectralFeatures  # noqa: E402
+
+# TYPE_CHECKING imports for type hints only - not imported at runtime in workers
+if TYPE_CHECKING:
+    from .classifier import QualityClassifier
+    from .confidence import ConfidenceCalculator
+    from .cutoff_detector import CutoffDetector
+    from .file_analyzer import FileAnalyzer
+    from .spectrum import SpectrumAnalyzer
+    from .transcode_detector import TranscodeDetector
+    from .types import AnalysisResult, SpectralFeatures
 
 logger = logging.getLogger("beets.bitrater")
+
+
+# Module-level cache for worker instances (one per process)
+_worker_initialized: bool = False
+_worker_analyzer: "SpectrumAnalyzer | None" = None
+_worker_file_analyzer: "FileAnalyzer | None" = None
+
+
+def _init_worker() -> None:
+    """One-time worker initialization: set thread limits before heavy imports."""
+    global _worker_initialized
+    if _worker_initialized:
+        return
+
+    import os
+
+    # Hard clamp ALL threading env vars BEFORE any heavy imports
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OMP_DYNAMIC"] = "FALSE"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["BLIS_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    os.environ["NUMBA_NUM_THREADS"] = "1"
+    os.environ["KMP_BLOCKTIME"] = "0"
+
+    import numba
+    numba.set_num_threads(1)
+
+    _worker_initialized = True
 
 
 def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | None]:
     """
     Worker function for joblib.Parallel - extracts features from audio file.
 
-    Creates its own SpectrumAnalyzer and FileAnalyzer instances to avoid
-    sharing state across processes.
-
-    CRITICAL: Thread limits must be set at the START of each worker before
-    any heavy libraries are used, because numba/OpenBLAS/MKL initialize
-    their thread pools based on CPU count at first use.
-
-    Args:
-        file_path: Path to audio file to analyze
-
-    Returns:
-        Tuple of (file_path, features) where features is None if extraction failed
+    CRITICAL: Reuses SpectrumAnalyzer/FileAnalyzer per process to avoid
+    spawning new threads on each call. FeatureCache creates a worker thread
+    that would leak if we created new instances per call.
     """
-    # CRITICAL: Limit threads BEFORE any numba/scipy operations
-    # These libraries check CPU count and create thread pools on first use
-    import numba
+    global _worker_analyzer, _worker_file_analyzer
+
+    # One-time setup per worker process
+    _init_worker()
+
     from threadpoolctl import threadpool_limits
 
-    numba.set_num_threads(1)
-
     with threadpool_limits(limits=1):
-        try:
-            analyzer = SpectrumAnalyzer()
-            file_analyzer = FileAnalyzer()
+        from .file_analyzer import FileAnalyzer
+        from .spectrum import SpectrumAnalyzer
 
-            # Get metadata to determine is_vbr flag for accurate training labels
-            metadata = file_analyzer.analyze(file_path)
+        # Create analyzers ONCE per worker process (avoids thread leak)
+        if _worker_analyzer is None:
+            _worker_analyzer = SpectrumAnalyzer()
+            _worker_file_analyzer = FileAnalyzer()
+
+        try:
+            # Get metadata to determine is_vbr flag
+            metadata = _worker_file_analyzer.analyze(file_path)
             is_vbr = 1.0 if metadata and metadata.encoding_type == "VBR" else 0.0
 
-            features = analyzer.analyze_file(file_path, is_vbr=is_vbr)
+            features = _worker_analyzer.analyze_file(file_path, is_vbr=is_vbr)
             return (file_path, features)
         except FileNotFoundError:
-            # File doesn't exist - expected in some cases, don't log
             return (file_path, None)
         except (ValueError, RuntimeError) as e:
-            # Audio format errors or analysis failures
             logger.warning(f"Failed to extract features from {file_path}: {e}")
             return (file_path, None)
         except Exception as e:
-            # Unexpected errors - log for investigation
             logger.error(f"Unexpected error extracting features from {file_path}: {e}", exc_info=True)
             return (file_path, None)
 
@@ -91,6 +140,21 @@ class AudioQualityAnalyzer:
         Args:
             model_path: Optional path to pre-trained classifier model
         """
+        # Lazy imports - heavy libraries are imported here in main process,
+        # AFTER env vars are set at module level. Workers use _extract_features_worker
+        # which does its own lazy imports.
+        from .classifier import QualityClassifier
+        from .confidence import ConfidenceCalculator
+        from .cutoff_detector import CutoffDetector
+        from .file_analyzer import FileAnalyzer
+        from .spectrum import SpectrumAnalyzer
+        from .transcode_detector import TranscodeDetector
+        from .types import AnalysisResult, SpectralFeatures
+
+        # Store type references for use in methods
+        self._AnalysisResult = AnalysisResult
+        self._SpectralFeatures = SpectralFeatures
+
         self.spectrum_analyzer = SpectrumAnalyzer()
         self.classifier = QualityClassifier(model_path)
         self.file_analyzer = FileAnalyzer()
@@ -145,7 +209,7 @@ class AudioQualityAnalyzer:
         # 4. Classify (if model is trained)
         if not self.classifier.trained:
             logger.warning("Classifier not trained - returning features without classification")
-            return AnalysisResult(
+            return self._AnalysisResult(
                 filename=str(path),
                 file_format=file_format,
                 original_format="UNKNOWN",
@@ -211,7 +275,7 @@ class AudioQualityAnalyzer:
                     f"detected ({detected_bitrate} kbps) - possible upsampled file"
                 )
 
-        return AnalysisResult(
+        return self._AnalysisResult(
             filename=str(path),
             file_format=file_format,
             original_format=prediction.format_type,
@@ -434,7 +498,7 @@ class AudioQualityAnalyzer:
     def validate_from_directory(
         self,
         training_dir: Path,
-        test_size: float = 0.8,
+        test_size: float = 0.2,
         random_state: int = 42,
         num_workers: int | None = None,
         use_parallel: bool | None = None,
@@ -569,10 +633,12 @@ class AudioQualityAnalyzer:
         extraction_start = time.time()
 
         # Parallel feature extraction for test files using joblib
-        results = Parallel(n_jobs=workers, backend="loky")(
-            delayed(_extract_features_worker)(path)
-            for path in tqdm(test_paths, desc="Extracting test features", unit="files")
-        )
+        # inner_max_num_threads=1 prevents thread explosion in workers
+        with parallel_config(backend="loky", inner_max_num_threads=1):
+            results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                delayed(_extract_features_worker)(path)
+                for path in tqdm(test_paths, desc="Extracting test features", unit="files")
+            )
 
         # Process results
         for (file_path, features), true_label in zip(results, test_labels, strict=True):
@@ -785,12 +851,14 @@ class AudioQualityAnalyzer:
 
         extraction_start = time.time()
 
-        # Process with joblib.Parallel - loky backend handles thread limiting
+        # Process with joblib.Parallel
+        # inner_max_num_threads=1 prevents thread explosion in workers
         file_paths = list(training_data.keys())
-        results = Parallel(n_jobs=workers, backend="loky")(
-            delayed(_extract_features_worker)(file_path)
-            for file_path in tqdm(file_paths, desc="Extracting features", unit="files")
-        )
+        with parallel_config(backend="loky", inner_max_num_threads=1):
+            results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                delayed(_extract_features_worker)(file_path)
+                for file_path in tqdm(file_paths, desc="Extracting features", unit="files")
+            )
 
         # Process results
         features_list: list[SpectralFeatures] = []
