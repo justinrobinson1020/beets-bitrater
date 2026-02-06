@@ -227,37 +227,73 @@ class TestSpectralFeaturesIsVbr:
         assert cbr_features.is_vbr == 0.0
 
 
-class TestUltrasonicFeatures:
-    """Tests for ultrasonic feature extraction."""
+class TestSFB21AndRolloffFeatures:
+    """Tests for SFB21 and rolloff feature fields in SpectralFeatures."""
 
-    def test_spectral_features_has_ultrasonic_field(self):
-        """SpectralFeatures should have ultrasonic_features field."""
+    def test_spectral_features_has_sfb21_field(self):
+        """SpectralFeatures should have sfb21_features field."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
         )
-        assert hasattr(features, 'ultrasonic_features')
-        assert features.ultrasonic_features.shape == (4,)
+        assert hasattr(features, 'sfb21_features')
+        assert features.sfb21_features.shape == (6,)
 
-    def test_as_vector_includes_ultrasonic_features(self):
-        """as_vector should include ultrasonic_features in output."""
+    def test_spectral_features_has_rolloff_field(self):
+        """SpectralFeatures should have rolloff_features field."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
-            ultrasonic_features=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        )
+        assert hasattr(features, 'rolloff_features')
+        assert features.rolloff_features.shape == (4,)
+
+    def test_as_vector_includes_sfb21_and_rolloff(self):
+        """as_vector should include sfb21 and rolloff features."""
+        features = SpectralFeatures(
+            features=np.zeros(150, dtype=np.float32),
+            frequency_bands=[(16000, 16040)] * 150,
+            sfb21_features=np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float32),
+            rolloff_features=np.array([7.0, 8.0, 9.0, 10.0], dtype=np.float32),
         )
         vector = features.as_vector()
-        # 150 + 6 + 8 + 6 + 4 + 1 = 175 features
-        assert vector.shape == (175,)
-        # Ultrasonic features should be at position 170-173 (before is_vbr)
+        # 150 + 6 + 8 + 6 + 6 + 4 + 1 = 181 features
+        assert vector.shape == (181,)
+        # SFB21 features at position 170-175 (after artifact)
         assert vector[170] == 1.0
-        assert vector[171] == 2.0
-        assert vector[172] == 3.0
-        assert vector[173] == 4.0
+        assert vector[175] == 6.0
+        # Rolloff features at position 176-179
+        assert vector[176] == 7.0
+        assert vector[179] == 10.0
+        # is_vbr at the end
+        assert vector[180] == 0.0
 
 
-class TestExtractUltrasonicFeatures:
-    """Tests for _extract_ultrasonic_features method."""
+class TestExtractSFB21Features:
+    """Tests for _extract_sfb21_features method."""
+
+    @pytest.fixture
+    def analyzer(self):
+        """Create SpectrumAnalyzer with no cache."""
+        return SpectrumAnalyzer(cache_dir=None)
+
+    def test_returns_six_features(self, analyzer):
+        """Should return exactly 6 features."""
+        y = np.random.rand(44100).astype(np.float32)
+        result = analyzer._extract_sfb21_features(y, 44100)
+        assert result.shape == (6,)
+        assert result.dtype == np.float32
+
+    def test_handles_empty_audio(self, analyzer):
+        """Should return zeros for empty audio."""
+        y = np.array([], dtype=np.float32)
+        result = analyzer._extract_sfb21_features(y, 44100)
+        assert result.shape == (6,)
+        assert np.allclose(result, 0.0)
+
+
+class TestExtractRolloffFeatures:
+    """Tests for _extract_rolloff_features method."""
 
     @pytest.fixture
     def analyzer(self):
@@ -266,76 +302,36 @@ class TestExtractUltrasonicFeatures:
 
     def test_returns_four_features(self, analyzer):
         """Should return exactly 4 features."""
-        # Create mock PSD with frequencies up to 22050 Hz
-        freqs = np.linspace(0, 22050, 2048)
-        psd = np.ones_like(freqs) * 1e-6  # Flat spectrum
-
-        result = analyzer._extract_ultrasonic_features(psd, freqs)
-
+        y = np.random.rand(44100).astype(np.float32)
+        result = analyzer._extract_rolloff_features(y, 44100)
         assert result.shape == (4,)
         assert result.dtype == np.float32
 
-    def test_v0_like_spectrum_high_shelf_flatness(self, analyzer):
-        """V0-like spectrum (hard cutoff) should have high shelf flatness."""
-        freqs = np.linspace(0, 22050, 2048)
-        psd = np.ones_like(freqs) * 1e-3
-        # Simulate V0 cutoff: drop to noise floor above 20kHz
-        psd[freqs > 20000] = 1e-10  # Flat noise floor
-
-        result = analyzer._extract_ultrasonic_features(psd, freqs)
-
-        # ultrasonic_variance should be low (flat noise floor)
-        assert result[0] < 1.0  # Low variance
-        # energy_ratio should be very low (hard shelf drop)
-        assert result[1] < 0.01
-        # shelf_flatness should be high (uniform noise floor)
-        assert result[3] > 0.5
-
-    def test_lossless_like_spectrum_low_shelf_flatness(self, analyzer):
-        """Lossless-like spectrum (content above 20kHz) should have low shelf flatness."""
-        freqs = np.linspace(0, 22050, 2048)
-        psd = np.ones_like(freqs) * 1e-3
-        # Simulate lossless: content continues above 20kHz with variation
-        psd[freqs > 20000] = 1e-4 + np.random.random(np.sum(freqs > 20000)) * 1e-4
-
-        result = analyzer._extract_ultrasonic_features(psd, freqs)
-
-        # ultrasonic_variance should be higher (varying content)
-        assert result[0] > 0.1  # Higher variance
-        # energy_ratio should be higher (content continues)
-        assert result[1] > 0.05
-        # shelf_flatness should be lower (not uniform)
-        assert result[3] < 0.8
-
-    def test_handles_empty_frequency_range(self, analyzer):
-        """Should handle edge case of missing frequency data gracefully."""
-        freqs = np.linspace(0, 15000, 1024)  # No ultrasonic data
-        psd = np.ones_like(freqs) * 1e-6
-
-        result = analyzer._extract_ultrasonic_features(psd, freqs)
-
+    def test_handles_empty_audio(self, analyzer):
+        """Should return zeros for empty audio."""
+        y = np.array([], dtype=np.float32)
+        result = analyzer._extract_rolloff_features(y, 44100)
         assert result.shape == (4,)
-        # Should return zeros for missing data
         assert np.allclose(result, 0.0)
 
-    def test_analyze_file_includes_ultrasonic_features(self, tmp_path, monkeypatch):
-        """analyze_file should populate ultrasonic_features."""
+    def test_analyze_file_includes_sfb21_and_rolloff(self, tmp_path, monkeypatch):
+        """analyze_file should populate sfb21 and rolloff features."""
         analyzer = SpectrumAnalyzer(cache_dir=None)
 
-        # Mock librosa.load to return valid audio data
         def mock_load(file_path, sr=None, mono=True):
-            return np.random.rand(44100), 44100  # 1 second at 44.1kHz
+            return np.random.rand(44100), 44100
 
         monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
 
-        # Create a dummy file
         test_file = tmp_path / "test.mp3"
         test_file.touch()
 
         result = analyzer.analyze_file(str(test_file))
 
         assert result is not None
-        assert hasattr(result, 'ultrasonic_features')
-        assert result.ultrasonic_features.shape == (4,)
-        # Should have some values (may be zero for simple random signal)
-        assert result.ultrasonic_features.dtype == np.float32
+        assert hasattr(result, 'sfb21_features')
+        assert result.sfb21_features.shape == (6,)
+        assert result.sfb21_features.dtype == np.float32
+        assert hasattr(result, 'rolloff_features')
+        assert result.rolloff_features.shape == (4,)
+        assert result.rolloff_features.dtype == np.float32
