@@ -3,16 +3,6 @@
 Based on D'Alessandro & Shi paper methodology, extended for lossless detection.
 """
 
-# CRITICAL: Set thread limits BEFORE any imports that load numba/scipy/librosa
-# These libraries initialize thread pools at import time based on CPU count.
-import os
-
-os.environ.setdefault("NUMBA_NUM_THREADS", "1")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
-
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -68,6 +58,10 @@ class SpectrumAnalyzer:
 
         self._band_frequencies = self._calculate_band_frequencies()
 
+        # In-memory PSD cache to avoid double-load between analyze_file and get_psd
+        self._last_psd_path: str | None = None
+        self._last_psd: tuple[np.ndarray, np.ndarray] | None = None
+
     def _calculate_band_frequencies(self) -> list[tuple[float, float]]:
         """Calculate frequency band boundaries for 150 bands across 16-22 kHz."""
         band_width = (self.max_freq - self.min_freq) / self.num_bands
@@ -91,33 +85,36 @@ class SpectrumAnalyzer:
         """
         path = Path(file_path)
 
+        # Clear in-memory PSD cache for new file
+        self._last_psd_path = None
+        self._last_psd = None
+
         try:
             # Check cache first
-            if self.cache is not None:
-                cached_result = self.cache.get_features(path)
-                if cached_result is not None:
-                    features, metadata = cached_result
-                    # Validate cached features match current config
-                    if (
-                        metadata.get("n_bands") == self.num_bands
-                        and metadata.get("approach") == "encoder_agnostic_v8"
-                    ):
-                        psd_bands, cutoff_feats, temporal_feats, artifact_feats, sfb21_feats, rolloff_feats = (
-                            self._split_feature_vector(features, metadata)
-                        )
-                        return SpectralFeatures(
-                            features=psd_bands,
-                            frequency_bands=metadata.get(
-                                "band_frequencies", self._band_frequencies
-                            ),
-                            cutoff_features=cutoff_feats,
-                            temporal_features=temporal_feats,
-                            artifact_features=artifact_feats,
-                            sfb21_features=sfb21_feats,
-                            rolloff_features=rolloff_feats,
-                            is_vbr=is_vbr,
-                        )
-                    # Cache miss due to config change - recompute
+            cached_result = self.cache.get_features(path)
+            if cached_result is not None:
+                features, metadata = cached_result
+                # Validate cached features match current config
+                if (
+                    metadata.get("n_bands") == self.num_bands
+                    and metadata.get("approach") == "encoder_agnostic_v8"
+                ):
+                    psd_bands, cutoff_feats, temporal_feats, artifact_feats, sfb21_feats, rolloff_feats = (
+                        self._split_feature_vector(features, metadata)
+                    )
+                    return SpectralFeatures(
+                        features=psd_bands,
+                        frequency_bands=metadata.get(
+                            "band_frequencies", self._band_frequencies
+                        ),
+                        cutoff_features=cutoff_feats,
+                        temporal_features=temporal_feats,
+                        artifact_features=artifact_feats,
+                        sfb21_features=sfb21_feats,
+                        rolloff_features=rolloff_feats,
+                        is_vbr=is_vbr,
+                    )
+                # Cache miss due to config change - recompute
 
             # Load audio as mono
             y, sr = librosa.load(file_path, sr=None, mono=True)
@@ -131,6 +128,10 @@ class SpectrumAnalyzer:
             freqs, psd = signal.welch(
                 y, sr, nperseg=self.fft_size, window="hann", detrend="constant"
             )
+
+            # Cache PSD for subsequent get_psd() call (avoids double-load)
+            self._last_psd_path = file_path
+            self._last_psd = (psd, freqs)
 
             # Extract 150 frequency band features (16-22 kHz)
             band_features = self._extract_band_features(psd, freqs)
@@ -173,8 +174,7 @@ class SpectrumAnalyzer:
             }
 
             # Cache the features
-            if self.cache is not None:
-                self.cache.save_features(path, combined_features, metadata)
+            self.cache.save_features(path, combined_features, metadata)
 
             return SpectralFeatures(
                 features=band_features,
@@ -701,6 +701,10 @@ class SpectrumAnalyzer:
         Returns:
             Tuple of (psd, freqs) arrays, or None if analysis fails
         """
+        # Return cached PSD if available (avoids reloading after analyze_file)
+        if self._last_psd_path == file_path and self._last_psd is not None:
+            return self._last_psd
+
         try:
             y, sr = librosa.load(file_path, sr=None, mono=True)
         except FileNotFoundError:
@@ -725,6 +729,5 @@ class SpectrumAnalyzer:
 
     def clear_cache(self) -> None:
         """Clear the feature cache."""
-        if self.cache is not None:
-            self.cache.clear()
-            logger.info("Feature cache cleared")
+        self.cache.clear()
+        logger.info("Feature cache cleared")

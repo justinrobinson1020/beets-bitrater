@@ -2,26 +2,8 @@
 
 from __future__ import annotations
 
-# CRITICAL: Set thread limits BEFORE any imports that load numba/scipy/librosa
-# These libraries initialize thread pools at import time based on CPU count.
-import os
-
-# Hard clamp ALL threading env vars before ANY imports
-_THREAD_ENV = {
-    "OMP_NUM_THREADS": "1",
-    "OMP_DYNAMIC": "FALSE",
-    "OPENBLAS_NUM_THREADS": "1",
-    "MKL_NUM_THREADS": "1",
-    "BLIS_NUM_THREADS": "1",
-    "VECLIB_MAXIMUM_THREADS": "1",  # macOS Accelerate
-    "NUMEXPR_NUM_THREADS": "1",
-    "NUMBA_NUM_THREADS": "1",
-    "KMP_BLOCKTIME": "0",
-}
-for _k, _v in _THREAD_ENV.items():
-    os.environ.setdefault(_k, _v)
-
 import logging
+import os
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,18 +47,9 @@ def _init_worker() -> None:
     if _worker_initialized:
         return
 
-    import os
+    from ._threading import clamp_threads_hard
 
-    # Hard clamp ALL threading env vars BEFORE any heavy imports
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["OMP_DYNAMIC"] = "FALSE"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["BLIS_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
-    os.environ["KMP_BLOCKTIME"] = "0"
+    clamp_threads_hard()
 
     import numba
     numba.set_num_threads(1)
@@ -149,11 +122,7 @@ class AudioQualityAnalyzer:
         from .file_analyzer import FileAnalyzer
         from .spectrum import SpectrumAnalyzer
         from .transcode_detector import TranscodeDetector
-        from .types import AnalysisResult, SpectralFeatures
-
-        # Store type references for use in methods
-        self._AnalysisResult = AnalysisResult
-        self._SpectralFeatures = SpectralFeatures
+        from .types import SpectralFeatures  # noqa: F841
 
         self.spectrum_analyzer = SpectrumAnalyzer()
         self.classifier = QualityClassifier(model_path)
@@ -169,6 +138,8 @@ class AudioQualityAnalyzer:
         Performs spectral analysis, SVM classification, cutoff detection,
         and applies confidence penalties.
         """
+        from .types import AnalysisResult
+
         path = Path(file_path)
 
         if not path.exists():
@@ -209,7 +180,7 @@ class AudioQualityAnalyzer:
         # 4. Classify (if model is trained)
         if not self.classifier.trained:
             logger.warning("Classifier not trained - returning features without classification")
-            return self._AnalysisResult(
+            return AnalysisResult(
                 filename=str(path),
                 file_format=file_format,
                 original_format="UNKNOWN",
@@ -275,7 +246,7 @@ class AudioQualityAnalyzer:
                     f"detected ({detected_bitrate} kbps) - possible upsampled file"
                 )
 
-        return self._AnalysisResult(
+        return AnalysisResult(
             filename=str(path),
             file_format=file_format,
             original_format=prediction.format_type,
@@ -429,62 +400,7 @@ class AudioQualityAnalyzer:
         Returns:
             Dictionary with training statistics
         """
-        training_dir = Path(training_dir)
-        if not training_dir.exists():
-            raise FileNotFoundError(f"Training directory not found: {training_dir}")
-
-        # Map directory names to class labels for lossy classes
-        lossy_dir_to_class = {
-            "128": CLASS_LABELS["128"],
-            "v2": CLASS_LABELS["V2"],
-            "192": CLASS_LABELS["192"],
-            "v0": CLASS_LABELS["V0"],
-            "256": CLASS_LABELS["256"],
-            "320": CLASS_LABELS["320"],
-        }
-
-        training_data: dict[str, int] = {}
-        audio_extensions = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
-
-        # Determine which structure we have
-        nested_lossy_dir = training_dir / "encoded" / "lossy"
-        if nested_lossy_dir.exists():
-            # Structure 1: nested structure
-            lossy_base = nested_lossy_dir
-            lossless_dir = training_dir / "lossless"
-            logger.info("Using nested directory structure (encoded/lossy/...)")
-        else:
-            # Structure 2: flat structure
-            lossy_base = training_dir
-            lossless_dir = training_dir / "lossless"
-            logger.info("Using flat directory structure")
-
-        # Collect lossy files
-        for dir_name, class_label in lossy_dir_to_class.items():
-            class_dir = lossy_base / dir_name
-            if class_dir.exists():
-                count = 0
-                for file_path in class_dir.iterdir():
-                    if file_path.suffix.lower() in audio_extensions:
-                        training_data[str(file_path)] = class_label
-                        count += 1
-                logger.info(f"Found {count} files in {dir_name}/")
-            else:
-                logger.warning(f"Training directory not found: {class_dir}")
-
-        # Collect lossless files
-        if lossless_dir.exists():
-            count = 0
-            for file_path in lossless_dir.iterdir():
-                if file_path.suffix.lower() in audio_extensions:
-                    training_data[str(file_path)] = CLASS_LABELS["LOSSLESS"]
-                    count += 1
-            logger.info(f"Found {count} files in lossless/")
-        else:
-            logger.warning(f"Lossless directory not found: {lossless_dir}")
-
-        if not training_data:
-            raise ValueError(f"No training files found in {training_dir}")
+        training_data = self._collect_training_data(Path(training_dir))
 
         # Decide on parallel vs sequential
         if use_parallel is None:
@@ -512,7 +428,7 @@ class AudioQualityAnalyzer:
 
         Args:
             training_dir: Path to training data directory
-            test_size: Fraction of data to use for testing (default: 0.8)
+            test_size: Fraction of data to use for testing (default: 0.2)
             random_state: Random seed for reproducibility (default: 42)
             num_workers: Optional number of workers for parallel feature extraction
             use_parallel: Force parallel (True) or sequential (False). Defaults to True unless
@@ -537,56 +453,7 @@ class AudioQualityAnalyzer:
         )
         from sklearn.model_selection import train_test_split
 
-        training_dir = Path(training_dir)
-        if not training_dir.exists():
-            raise FileNotFoundError(f"Training directory not found: {training_dir}")
-
-        # Map directory names to class labels for lossy classes
-        lossy_dir_to_class = {
-            "128": CLASS_LABELS["128"],
-            "v2": CLASS_LABELS["V2"],
-            "192": CLASS_LABELS["192"],
-            "v0": CLASS_LABELS["V0"],
-            "256": CLASS_LABELS["256"],
-            "320": CLASS_LABELS["320"],
-        }
-
-        training_data: dict[str, int] = {}
-        audio_extensions = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
-
-        # Determine which structure we have
-        nested_lossy_dir = training_dir / "encoded" / "lossy"
-        if nested_lossy_dir.exists():
-            lossy_base = nested_lossy_dir
-            lossless_dir = training_dir / "lossless"
-            logger.info("Using nested directory structure (encoded/lossy/...)")
-        else:
-            lossy_base = training_dir
-            lossless_dir = training_dir / "lossless"
-            logger.info("Using flat directory structure")
-
-        # Collect lossy files
-        for dir_name, class_label in lossy_dir_to_class.items():
-            class_dir = lossy_base / dir_name
-            if class_dir.exists():
-                count = 0
-                for file_path in class_dir.iterdir():
-                    if file_path.suffix.lower() in audio_extensions:
-                        training_data[str(file_path)] = class_label
-                        count += 1
-                logger.info(f"Found {count} files in {dir_name}/")
-
-        # Collect lossless files
-        if lossless_dir.exists():
-            count = 0
-            for file_path in lossless_dir.iterdir():
-                if file_path.suffix.lower() in audio_extensions:
-                    training_data[str(file_path)] = CLASS_LABELS["LOSSLESS"]
-                    count += 1
-            logger.info(f"Found {count} files in lossless/")
-
-        if not training_data:
-            raise ValueError(f"No training files found in {training_dir}")
+        training_data = self._collect_training_data(Path(training_dir))
 
         # Split into train/test sets
         paths = list(training_data.keys())
@@ -755,6 +622,78 @@ class AudioQualityAnalyzer:
             "train_pct": len(train_paths) / len(training_data),
             "test_pct": len(test_paths) / len(training_data),
         }
+
+    def _collect_training_data(self, training_dir: Path) -> dict[str, int]:
+        """Scan directory structure and return file-path-to-label mapping.
+
+        Supports two directory layouts (nested and flat). Used by both
+        train_from_directory and validate_from_directory.
+
+        Args:
+            training_dir: Root directory containing training data
+
+        Returns:
+            Dictionary mapping file paths (str) to class label indices (int)
+
+        Raises:
+            FileNotFoundError: If training_dir does not exist
+            ValueError: If no audio files are found
+        """
+        training_dir = Path(training_dir)
+        if not training_dir.exists():
+            raise FileNotFoundError(f"Training directory not found: {training_dir}")
+
+        lossy_dir_to_class = {
+            "128": CLASS_LABELS["128"],
+            "v2": CLASS_LABELS["V2"],
+            "192": CLASS_LABELS["192"],
+            "v0": CLASS_LABELS["V0"],
+            "256": CLASS_LABELS["256"],
+            "320": CLASS_LABELS["320"],
+        }
+
+        training_data: dict[str, int] = {}
+        audio_extensions = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
+
+        # Determine which structure we have
+        nested_lossy_dir = training_dir / "encoded" / "lossy"
+        if nested_lossy_dir.exists():
+            lossy_base = nested_lossy_dir
+            lossless_dir = training_dir / "lossless"
+            logger.info("Using nested directory structure (encoded/lossy/...)")
+        else:
+            lossy_base = training_dir
+            lossless_dir = training_dir / "lossless"
+            logger.info("Using flat directory structure")
+
+        # Collect lossy files
+        for dir_name, class_label in lossy_dir_to_class.items():
+            class_dir = lossy_base / dir_name
+            if class_dir.exists():
+                count = 0
+                for file_path in class_dir.iterdir():
+                    if file_path.suffix.lower() in audio_extensions:
+                        training_data[str(file_path)] = class_label
+                        count += 1
+                logger.info(f"Found {count} files in {dir_name}/")
+            else:
+                logger.warning(f"Training directory not found: {class_dir}")
+
+        # Collect lossless files
+        if lossless_dir.exists():
+            count = 0
+            for file_path in lossless_dir.iterdir():
+                if file_path.suffix.lower() in audio_extensions:
+                    training_data[str(file_path)] = CLASS_LABELS["LOSSLESS"]
+                    count += 1
+            logger.info(f"Found {count} files in lossless/")
+        else:
+            logger.warning(f"Lossless directory not found: {lossless_dir}")
+
+        if not training_data:
+            raise ValueError(f"No training files found in {training_dir}")
+
+        return training_data
 
     def _get_stated_class(self, file_format: str, stated_bitrate: int | None) -> str:
         """

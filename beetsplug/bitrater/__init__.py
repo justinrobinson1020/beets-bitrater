@@ -3,13 +3,9 @@
 # CRITICAL: Set thread limits BEFORE any imports that load numba/scipy/librosa
 # These libraries check env vars at import time to initialize thread pools.
 # This MUST happen before importing plugin (which imports analyzer -> spectrum -> librosa)
-import os
+from beetsplug.bitrater._threading import clamp_threads
 
-os.environ.setdefault("NUMBA_NUM_THREADS", "1")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+clamp_threads()
 
 from beetsplug.bitrater.plugin import BitraterPlugin
 

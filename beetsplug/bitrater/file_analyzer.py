@@ -8,6 +8,7 @@ from mutagen.flac import FLAC
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 
+from .constants import LOSSLESS_CONTAINERS
 from .types import FileMetadata
 
 logger = logging.getLogger("beets.bitrater")
@@ -125,8 +126,7 @@ class FileAnalyzer:
         info = audio.info
 
         # Determine if lossless based on format
-        lossless_formats = {"flac", "wav", "alac", "ape", "wv", "aiff"}
-        encoding_type = "lossless" if file_format in lossless_formats else "lossy"
+        encoding_type = "lossless" if file_format in LOSSLESS_CONTAINERS else "lossy"
 
         bitrate = None
         if hasattr(info, "bitrate") and info.bitrate:

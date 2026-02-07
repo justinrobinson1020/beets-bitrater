@@ -270,4 +270,17 @@ class QualityClassifier:
             self.classes = data.get("classes", BITRATE_CLASSES)
             self.trained = data["trained"]
 
-        logger.info(f"Model loaded from {path}")
+        # Version check
+        model_version = data.get("version")
+        if model_version != "3.0":
+            logger.warning(
+                f"Model version mismatch: expected '3.0', got '{model_version}'. "
+                "Predictions may be unreliable."
+            )
+
+        # Log feature count from scaler
+        n_features = getattr(self.scaler, "n_features_in_", None)
+        if n_features is not None:
+            logger.info(f"Model loaded from {path} ({n_features} features)")
+        else:
+            logger.info(f"Model loaded from {path}")

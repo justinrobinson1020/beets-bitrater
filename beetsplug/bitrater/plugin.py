@@ -279,27 +279,27 @@ class BitraterPlugin(BeetsPlugin):
         # Don't add custom handler - use beets' coordinated output
 
     def _print_validation_results(self, metrics: dict) -> None:
-        """Print validation results with accuracy metrics."""
-        print("\n" + "=" * 60)
-        print("MODEL VALIDATION RESULTS")
-        print("=" * 60)
+        """Log validation results with accuracy metrics."""
+        logger.info("\n" + "=" * 60)
+        logger.info("MODEL VALIDATION RESULTS")
+        logger.info("=" * 60)
 
-        print(f"\nDataset: {metrics['total_samples']} samples")
-        print(f"Training set: {metrics['train_samples']} ({metrics['train_pct']:.0%})")
-        print(f"Test set: {metrics['test_samples']} ({metrics['test_pct']:.0%})")
+        logger.info(f"\nDataset: {metrics['total_samples']} samples")
+        logger.info(f"Training set: {metrics['train_samples']} ({metrics['train_pct']:.0%})")
+        logger.info(f"Test set: {metrics['test_samples']} ({metrics['test_pct']:.0%})")
 
-        print(f"\n{'='*60}")
-        print(f"OVERALL ACCURACY: {metrics['accuracy']:.1%}")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"OVERALL ACCURACY: {metrics['accuracy']:.1%}")
+        logger.info(f"{'='*60}")
 
         # Per-class metrics
-        print("\nPer-Class Results:")
-        print("-" * 60)
-        print(f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
-        print("-" * 60)
+        logger.info("\nPer-Class Results:")
+        logger.info("-" * 60)
+        logger.info(f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
+        logger.info("-" * 60)
 
         for class_name, class_metrics in metrics["per_class"].items():
-            print(
+            logger.info(
                 f"{class_name:<12} "
                 f"{class_metrics['precision']:>10.1%} "
                 f"{class_metrics['recall']:>10.1%} "
@@ -307,72 +307,68 @@ class BitraterPlugin(BeetsPlugin):
                 f"{class_metrics['support']:>10}"
             )
 
-        print("-" * 60)
+        logger.info("-" * 60)
 
         # Confusion matrix
-        print("\nConfusion Matrix:")
-        print("-" * 60)
+        logger.info("\nConfusion Matrix:")
+        logger.info("-" * 60)
         cm = metrics["confusion_matrix"]
         class_names = metrics["class_names"]
 
         # Header
-        print(f"{'Actual/Pred':<12}", end="")
-        for name in class_names:
-            print(f"{name:>8}", end="")
-        print()
+        header = f"{'Actual/Pred':<12}" + "".join(f"{name:>8}" for name in class_names)
+        logger.info(header)
 
         # Rows
         for i, actual_name in enumerate(class_names):
-            print(f"{actual_name:<12}", end="")
-            for j in range(len(class_names)):
-                print(f"{cm[i][j]:>8}", end="")
-            print()
+            row = f"{actual_name:<12}" + "".join(f"{cm[i][j]:>8}" for j in range(len(class_names)))
+            logger.info(row)
 
-        print("\n" + "=" * 60)
+        logger.info("\n" + "=" * 60)
 
         # Comparison with paper
-        print("\nComparison with D'Alessandro & Shi (2009):")
-        print("  Paper accuracy: 97%")
-        print(f"  Our accuracy:   {metrics['accuracy']:.1%}")
+        logger.info("\nComparison with D'Alessandro & Shi (2009):")
+        logger.info("  Paper accuracy: 97%")
+        logger.info(f"  Our accuracy:   {metrics['accuracy']:.1%}")
         if metrics['accuracy'] >= 0.95:
-            print("  ✓ Matches or exceeds paper's results")
+            logger.info("  [OK] Matches or exceeds paper's results")
         elif metrics['accuracy'] >= 0.90:
-            print("  ⚠ Slightly below paper's results (acceptable)")
+            logger.info("  [WARN] Slightly below paper's results (acceptable)")
         else:
-            print("  ✗ Below expected accuracy - investigate")
+            logger.info("  [FAIL] Below expected accuracy - investigate")
 
     def _print_analysis(self, item: Item, result: AnalysisResult) -> None:
-        """Print detailed analysis results for an item."""
-        print(f"\n{item.title}")
-        print("-" * 50)
-        print(f"Path: {item.path}")
-        print(f"File format: {result.file_format}")
-        print(f"Stated bitrate: {result.stated_bitrate or 'N/A'} kbps")
-        print(f"Detected original: {result.original_format} ({result.original_bitrate} kbps)")
-        print(f"Confidence: {result.confidence:.1%}")
+        """Log detailed analysis results for an item."""
+        logger.info(f"\n{item.title}")
+        logger.info("-" * 50)
+        logger.info(f"Path: {item.path}")
+        logger.info(f"File format: {result.file_format}")
+        logger.info(f"Stated bitrate: {result.stated_bitrate or 'N/A'} kbps")
+        logger.info(f"Detected original: {result.original_format} ({result.original_bitrate} kbps)")
+        logger.info(f"Confidence: {result.confidence:.1%}")
 
         if result.is_transcode:
-            print(f"⚠️  TRANSCODE DETECTED - appears to be from {result.transcoded_from}")
+            logger.info(f"[WARN] TRANSCODE DETECTED - appears to be from {result.transcoded_from}")
 
         if result.warnings:
-            print("\nWarnings:")
+            logger.info("\nWarnings:")
             for warning in result.warnings:
-                print(f"  - {warning}")
+                logger.info(f"  - {warning}")
 
     def _print_summary(self, total: int, transcodes: int, low_confidence: int) -> None:
-        """Print analysis summary."""
-        print("\n" + "=" * 50)
-        print("Analysis Summary")
-        print("=" * 50)
-        print(f"Total files analyzed: {total}")
+        """Log analysis summary."""
+        logger.info("\n" + "=" * 50)
+        logger.info("Analysis Summary")
+        logger.info("=" * 50)
+        logger.info(f"Total files analyzed: {total}")
 
         if transcodes > 0:
-            print(f"⚠️  Potential transcodes detected: {transcodes}")
+            logger.info(f"[WARN] Potential transcodes detected: {transcodes}")
         if low_confidence > 0:
-            print(f"⚠️  Low confidence results: {low_confidence}")
+            logger.info(f"[WARN] Low confidence results: {low_confidence}")
 
         if transcodes == 0 and low_confidence == 0:
-            print("✓ All files appear to be original quality")
+            logger.info("[OK] All files appear to be original quality")
 
     def import_task(self, session: Any, task: Any) -> None:
         """Automatically analyze files during import if enabled.

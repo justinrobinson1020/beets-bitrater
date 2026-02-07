@@ -156,10 +156,14 @@ class FeatureCache:
                 if file_mtime > cache_mtime:
                     return None
 
-            # Load features
-            with np.load(cache_path, allow_pickle=True) as data:
+            # Load features (no pickle required)
+            with np.load(cache_path, allow_pickle=False) as data:
                 features = data['features']
-                metadata = dict(data['metadata'].item())
+                if 'metadata_json' in data:
+                    metadata = json.loads(data['metadata_json'].tobytes().decode("utf-8"))
+                else:
+                    # Legacy format — force re-cache
+                    return None
 
             return features, metadata
 
@@ -177,12 +181,13 @@ class FeatureCache:
             file_hash = self._get_file_key(file_path)
             cache_path = self._get_cache_path(file_hash)
 
-            # Save feature data (uncompressed is faster, small files don't benefit much)
-            metadata_arr = np.array(metadata, dtype=object)
+            # Encode metadata as JSON bytes (avoids pickle entirely)
+            metadata_bytes = json.dumps(metadata, default=str).encode("utf-8")
+            metadata_arr = np.frombuffer(metadata_bytes, dtype=np.uint8).copy()
             np.savez(
                 cache_path,
                 features=features,
-                metadata=metadata_arr
+                metadata_json=metadata_arr,
             )
 
             # Queue metadata update

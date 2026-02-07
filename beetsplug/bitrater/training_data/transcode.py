@@ -567,7 +567,7 @@ class ProgressTracker:
         logger.info("=" * 50)
 
 
-def main():
+def main() -> None:
     """Main entry point for transcoding script."""
     parser = argparse.ArgumentParser(
         description="Generate training data for bitrater plugin",
@@ -791,7 +791,7 @@ def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
         logger.info("\nMigration completed successfully!")
 
 
-def main_migrate():
+def main_migrate() -> None:
     """Entry point for migration-only operation."""
     parser = argparse.ArgumentParser(
         description="Migrate existing training data to new directory structure",

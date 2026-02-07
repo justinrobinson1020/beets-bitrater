@@ -34,12 +34,19 @@ def sample_features() -> SpectralFeatures:
         for i in range(num_bands)
     ]
 
+    # Realistic 320kbps SFB21 values: moderate ultra ratio, good continuity
+    sfb21_features = np.array([0.15, 0.6, 0.3, 0.05, 0.08, 0.25], dtype=np.float32)
+    # Realistic 320kbps rolloff: moderate slope, some drop
+    rolloff_features = np.array([-0.8, -12.0, 0.7, 0.3], dtype=np.float32)
+
     return SpectralFeatures(
         features=features,
         frequency_bands=frequency_bands,
         cutoff_features=np.zeros(6, dtype=np.float32),
         temporal_features=np.zeros(8, dtype=np.float32),
         artifact_features=np.zeros(6, dtype=np.float32),
+        sfb21_features=sfb21_features,
+        rolloff_features=rolloff_features,
         is_vbr=0.0,  # Simulating CBR file
     )
 
@@ -61,12 +68,19 @@ def lossless_features() -> SpectralFeatures:
         for i in range(num_bands)
     ]
 
+    # Realistic lossless SFB21 values: high ultra ratio, strong continuity
+    sfb21_features = np.array([0.6, 0.85, 0.7, 0.02, 0.03, 0.65], dtype=np.float32)
+    # Realistic lossless rolloff: shallow slope, minimal drop
+    rolloff_features = np.array([-0.2, -3.0, 0.9, 0.8], dtype=np.float32)
+
     return SpectralFeatures(
         features=features,
         frequency_bands=frequency_bands,
         cutoff_features=np.zeros(6, dtype=np.float32),
         temporal_features=np.zeros(8, dtype=np.float32),
         artifact_features=np.zeros(6, dtype=np.float32),
+        sfb21_features=sfb21_features,
+        rolloff_features=rolloff_features,
         is_vbr=0.0,  # Lossless is not VBR
     )
 
@@ -202,12 +216,48 @@ def training_features() -> tuple[list, list]:
             # V2 and V0 are VBR, others are CBR
             is_vbr = 1.0 if class_idx in [TrainingClass.VBR_V2, TrainingClass.VBR_V0] else 0.0
 
+            # Class-appropriate SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
+            noise = np.random.rand(6).astype(np.float32) * 0.05
+            if class_idx == TrainingClass.CBR_128:
+                sfb21 = np.array([0.02, 0.2, 0.1, 0.01, 0.02, 0.05], dtype=np.float32) + noise
+            elif class_idx == TrainingClass.VBR_V2:
+                sfb21 = np.array([0.05, 0.35, 0.15, 0.03, 0.04, 0.10], dtype=np.float32) + noise
+            elif class_idx == TrainingClass.CBR_192:
+                sfb21 = np.array([0.08, 0.45, 0.20, 0.02, 0.03, 0.15], dtype=np.float32) + noise
+            elif class_idx == TrainingClass.VBR_V0:
+                sfb21 = np.array([0.10, 0.55, 0.25, 0.08, 0.10, 0.20], dtype=np.float32) + noise
+            elif class_idx == TrainingClass.CBR_256:
+                sfb21 = np.array([0.12, 0.58, 0.28, 0.04, 0.06, 0.22], dtype=np.float32) + noise
+            elif class_idx == TrainingClass.CBR_320:
+                sfb21 = np.array([0.15, 0.60, 0.30, 0.05, 0.08, 0.25], dtype=np.float32) + noise
+            else:  # LOSSLESS
+                sfb21 = np.array([0.60, 0.85, 0.70, 0.02, 0.03, 0.65], dtype=np.float32) + noise
+
+            # Class-appropriate rolloff features (slope, total_drop, ratio_early, ratio_late)
+            noise_r = np.random.rand(4).astype(np.float32) * 0.1
+            if class_idx == TrainingClass.CBR_128:
+                rolloff = np.array([-2.5, -30.0, 0.2, 0.05], dtype=np.float32) + noise_r
+            elif class_idx == TrainingClass.VBR_V2:
+                rolloff = np.array([-1.8, -22.0, 0.35, 0.10], dtype=np.float32) + noise_r
+            elif class_idx == TrainingClass.CBR_192:
+                rolloff = np.array([-1.5, -18.0, 0.45, 0.15], dtype=np.float32) + noise_r
+            elif class_idx == TrainingClass.VBR_V0:
+                rolloff = np.array([-1.2, -15.0, 0.55, 0.20], dtype=np.float32) + noise_r
+            elif class_idx == TrainingClass.CBR_256:
+                rolloff = np.array([-1.0, -13.0, 0.65, 0.25], dtype=np.float32) + noise_r
+            elif class_idx == TrainingClass.CBR_320:
+                rolloff = np.array([-0.8, -12.0, 0.70, 0.30], dtype=np.float32) + noise_r
+            else:  # LOSSLESS
+                rolloff = np.array([-0.2, -3.0, 0.90, 0.80], dtype=np.float32) + noise_r
+
             features_list.append(SpectralFeatures(
                 features=features,
                 frequency_bands=frequency_bands,
                 cutoff_features=np.zeros(6, dtype=np.float32),
                 temporal_features=np.zeros(8, dtype=np.float32),
                 artifact_features=np.zeros(6, dtype=np.float32),
+                sfb21_features=sfb21,
+                rolloff_features=rolloff,
                 is_vbr=is_vbr,
             ))
             labels.append(int(class_idx))
