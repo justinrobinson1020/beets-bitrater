@@ -230,7 +230,7 @@ class TestSpectralFeaturesIsVbr:
 class TestSFB21AndRolloffFeatures:
     """Tests for SFB21 and rolloff feature fields in SpectralFeatures."""
 
-    def test_spectral_features_has_sfb21_field(self):
+    def test_spectral_features_has_sfb21_field(self) -> None:
         """SpectralFeatures should have sfb21_features field."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
@@ -239,7 +239,7 @@ class TestSFB21AndRolloffFeatures:
         assert hasattr(features, 'sfb21_features')
         assert features.sfb21_features.shape == (6,)
 
-    def test_spectral_features_has_rolloff_field(self):
+    def test_spectral_features_has_rolloff_field(self) -> None:
         """SpectralFeatures should have rolloff_features field."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
@@ -248,7 +248,7 @@ class TestSFB21AndRolloffFeatures:
         assert hasattr(features, 'rolloff_features')
         assert features.rolloff_features.shape == (4,)
 
-    def test_as_vector_includes_sfb21_and_rolloff(self):
+    def test_as_vector_includes_sfb21_and_rolloff(self) -> None:
         """as_vector should include sfb21 and rolloff features."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
@@ -277,14 +277,14 @@ class TestExtractSFB21Features:
         """Create SpectrumAnalyzer with no cache."""
         return SpectrumAnalyzer(cache_dir=None)
 
-    def test_returns_six_features(self, analyzer):
+    def test_returns_six_features(self, analyzer) -> None:
         """Should return exactly 6 features."""
         y = np.random.rand(44100).astype(np.float32)
         result = analyzer._extract_sfb21_features(y, 44100)
         assert result.shape == (6,)
         assert result.dtype == np.float32
 
-    def test_handles_empty_audio(self, analyzer):
+    def test_handles_empty_audio(self, analyzer) -> None:
         """Should return zeros for empty audio."""
         y = np.array([], dtype=np.float32)
         result = analyzer._extract_sfb21_features(y, 44100)
@@ -300,21 +300,21 @@ class TestExtractRolloffFeatures:
         """Create SpectrumAnalyzer with no cache."""
         return SpectrumAnalyzer(cache_dir=None)
 
-    def test_returns_four_features(self, analyzer):
+    def test_returns_four_features(self, analyzer) -> None:
         """Should return exactly 4 features."""
         y = np.random.rand(44100).astype(np.float32)
         result = analyzer._extract_rolloff_features(y, 44100)
         assert result.shape == (4,)
         assert result.dtype == np.float32
 
-    def test_handles_empty_audio(self, analyzer):
+    def test_handles_empty_audio(self, analyzer) -> None:
         """Should return zeros for empty audio."""
         y = np.array([], dtype=np.float32)
         result = analyzer._extract_rolloff_features(y, 44100)
         assert result.shape == (4,)
         assert np.allclose(result, 0.0)
 
-    def test_analyze_file_includes_sfb21_and_rolloff(self, tmp_path, monkeypatch):
+    def test_analyze_file_includes_sfb21_and_rolloff(self, tmp_path, monkeypatch) -> None:
         """analyze_file should populate sfb21 and rolloff features."""
         analyzer = SpectrumAnalyzer(cache_dir=None)
 

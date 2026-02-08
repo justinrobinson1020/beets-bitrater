@@ -1,12 +1,16 @@
 """Tests for audio quality analyzer."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import numpy as np
 import pytest
 
 from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
-from beetsplug.bitrater.types import AnalysisResult
+from beetsplug.bitrater.cutoff_detector import CutoffResult
+from beetsplug.bitrater.types import AnalysisResult, ClassifierPrediction, SpectralFeatures
 
 
 class TestAudioQualityAnalyzer:
@@ -36,7 +40,7 @@ class TestAudioQualityAnalyzer:
         result = analyzer.analyze_file("/nonexistent/file.mp3")
         assert result is None
 
-    def test_analyze_file_untrained_returns_unknown(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_analyze_file_untrained_returns_unknown(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Test analyze_file returns UNKNOWN when classifier not trained."""
         analyzer = AudioQualityAnalyzer()
 
@@ -70,43 +74,112 @@ class TestAudioQualityAnalyzer:
 
 
 class TestWarningGeneration:
-    """Tests for warning message generation through AnalysisResult."""
+    """Tests for warning generation through the real analyze_file pipeline."""
 
-    def test_low_confidence_warning_in_result(self, analysis_result_builder: "AnalysisResultBuilder") -> None:
-        """Test warning generated for low confidence analysis."""
-        # Low confidence results should include a warning
-        result = analysis_result_builder.with_low_confidence().build()
+    def _make_analyzer(
+        self,
+        sample_features: SpectralFeatures,
+        tmp_path: Path,
+        *,
+        file_ext: str = "mp3",
+        metadata_bitrate: int | None = 320,
+        metadata_encoding: str = "CBR",
+        classifier_format: str = "320",
+        classifier_bitrate: int = 320,
+        classifier_confidence: float = 0.95,
+        cutoff_frequency: int = 20500,
+        cutoff_gradient: float = 0.8,
+    ) -> tuple[AudioQualityAnalyzer, str]:
+        """Create an analyzer with controlled mocks, letting real warning logic run."""
+        analyzer = AudioQualityAnalyzer()
 
-        assert any("confidence" in w.lower() for w in result.warnings)
+        fake_audio = tmp_path / f"test.{file_ext}"
+        fake_audio.write_bytes(b"fake audio content")
 
-    def test_transcode_warning_in_result(self, analysis_result_builder: "AnalysisResultBuilder") -> None:
-        """Test warning generated for transcodes."""
-        result = analysis_result_builder.with_transcode().build()
+        # Mock metadata
+        if metadata_bitrate is not None:
+            mock_metadata = Mock(bitrate=metadata_bitrate, encoding_type=metadata_encoding)
+        else:
+            mock_metadata = Mock(bitrate=None, encoding_type=metadata_encoding)
 
-        assert any("transcode" in w.lower() for w in result.warnings)
-
-    def test_bitrate_mismatch_warning_in_result(self, analysis_result_builder: "AnalysisResultBuilder") -> None:
-        """Test warning for significant bitrate mismatch."""
-        result = analysis_result_builder.with_bitrate_mismatch().build()
-
-        assert any("bitrate" in w.lower() or "upsampled" in w.lower() for w in result.warnings)
-
-    def test_warning_constants_exist(self) -> None:
-        """Test that warning threshold constants are defined and used correctly."""
-        from beetsplug.bitrater.constants import (
-            BITRATE_MISMATCH_FACTOR,
-            LOW_CONFIDENCE_THRESHOLD,
+        # Mock classifier prediction
+        mock_prediction = ClassifierPrediction(
+            format_type=classifier_format,
+            estimated_bitrate=classifier_bitrate,
+            confidence=classifier_confidence,
         )
 
-        # Constants should be defined
-        assert LOW_CONFIDENCE_THRESHOLD == 0.7
-        assert BITRATE_MISMATCH_FACTOR == 1.5
+        # Mock cutoff detection
+        psd = np.ones(100, dtype=np.float32)
+        freqs = np.linspace(15000, 22050, 100)
+        mock_cutoff = CutoffResult(
+            cutoff_frequency=cutoff_frequency,
+            gradient=cutoff_gradient,
+            is_sharp=cutoff_gradient > 0.5,
+            confidence=0.8,
+        )
 
-        # Verify these constants are actually used in warning logic
-        # by testing boundary conditions
-        assert LOW_CONFIDENCE_THRESHOLD > 0  # Must be positive probability
-        assert LOW_CONFIDENCE_THRESHOLD < 1  # Must be valid probability
-        assert BITRATE_MISMATCH_FACTOR > 1  # Must require significant mismatch
+        # Apply mocks — let confidence_calculator, transcode_detector, and
+        # warning assembly in analyze_file() run for real
+        patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata).start()
+        patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features).start()
+        patch.object(analyzer.classifier, "predict", return_value=mock_prediction).start()
+        analyzer.classifier.trained = True
+        patch.object(analyzer.spectrum_analyzer, "get_psd", return_value=(psd, freqs)).start()
+        patch.object(analyzer.cutoff_detector, "detect", return_value=mock_cutoff).start()
+
+        return analyzer, str(fake_audio)
+
+    def test_low_confidence_warning(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+        """Low classifier confidence + cutoff mismatch + soft gradient → confidence warning."""
+        analyzer, path = self._make_analyzer(
+            sample_features,
+            tmp_path,
+            classifier_confidence=0.4,
+            classifier_format="320",
+            classifier_bitrate=320,
+            cutoff_frequency=16000,  # Big mismatch from expected ~20500
+            cutoff_gradient=0.1,  # Soft gradient → penalty
+        )
+        result = analyzer.analyze_file(path)
+
+        assert result is not None
+        assert any("confidence" in w.lower() for w in result.warnings)
+
+    def test_transcode_warning(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+        """FLAC container + classifier detects 128 → transcode warning."""
+        analyzer, path = self._make_analyzer(
+            sample_features,
+            tmp_path,
+            file_ext="flac",
+            metadata_bitrate=None,
+            metadata_encoding="lossless",
+            classifier_format="128",
+            classifier_bitrate=128,
+            cutoff_frequency=16000,
+            cutoff_gradient=0.9,
+        )
+        result = analyzer.analyze_file(path)
+
+        assert result is not None
+        assert result.is_transcode is True
+        assert any("transcode" in w.lower() for w in result.warnings)
+
+    def test_bitrate_mismatch_warning(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+        """Stated 320 kbps but classifier says 128 → bitrate mismatch warning."""
+        analyzer, path = self._make_analyzer(
+            sample_features,
+            tmp_path,
+            metadata_bitrate=320,
+            classifier_format="128",
+            classifier_bitrate=128,
+            cutoff_frequency=16000,
+            cutoff_gradient=0.9,
+        )
+        result = analyzer.analyze_file(path)
+
+        assert result is not None
+        assert any("bitrate" in w.lower() or "upsampled" in w.lower() for w in result.warnings)
 
 
 class TestAnalysisResult:
@@ -163,55 +236,6 @@ class TestAnalysisResult:
         assert result.quality_gap == 6
 
 
-class TestAnalysisResultFields:
-    """Test new AnalysisResult fields for transcode detection."""
-
-    def test_has_stated_class_field(self) -> None:
-        """AnalysisResult should have stated_class field."""
-        result = AnalysisResult(
-            filename="test.flac",
-            file_format="flac",
-            original_format="192",
-            original_bitrate=192,
-            confidence=0.9,
-            is_transcode=True,
-            stated_class="LOSSLESS",
-            detected_cutoff=19000,
-            quality_gap=4,
-        )
-        assert result.stated_class == "LOSSLESS"
-
-    def test_has_detected_cutoff_field(self) -> None:
-        """AnalysisResult should have detected_cutoff field."""
-        result = AnalysisResult(
-            filename="test.mp3",
-            file_format="mp3",
-            original_format="320",
-            original_bitrate=320,
-            confidence=0.9,
-            is_transcode=False,
-            stated_class="320",
-            detected_cutoff=20500,
-            quality_gap=0,
-        )
-        assert result.detected_cutoff == 20500
-
-    def test_has_quality_gap_field(self) -> None:
-        """AnalysisResult should have quality_gap field."""
-        result = AnalysisResult(
-            filename="test.flac",
-            file_format="flac",
-            original_format="128",
-            original_bitrate=128,
-            confidence=0.85,
-            is_transcode=True,
-            stated_class="LOSSLESS",
-            detected_cutoff=16000,
-            quality_gap=6,  # LOSSLESS(6) - 128(0) = 6
-        )
-        assert result.quality_gap == 6
-
-
 class TestAnalyzerIsVbrPropagation:
     """Tests for analyzer propagating is_vbr from file metadata to spectrum analyzer.
     
@@ -220,7 +244,7 @@ class TestAnalyzerIsVbrPropagation:
     characteristic detection (e.g., VBR may show different bitrate patterns).
     """
 
-    def test_analyze_file_passes_is_vbr_true_for_vbr_files(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_true_for_vbr_files(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Analyzer should pass is_vbr=1.0 to spectrum analyzer for VBR files."""
         analyzer = AudioQualityAnalyzer()
 
@@ -238,11 +262,9 @@ class TestAnalyzerIsVbrPropagation:
 
             # Verify spectrum analyzer was called with is_vbr=1.0
             mock_spectrum.assert_called_once()
-            call_kwargs = mock_spectrum.call_args
-            # Check if is_vbr was passed as keyword argument
-            assert call_kwargs[1].get("is_vbr") == 1.0 or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == 1.0)
+            assert mock_spectrum.call_args.kwargs["is_vbr"] == 1.0
 
-    def test_analyze_file_passes_is_vbr_false_for_cbr_files(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_for_cbr_files(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Analyzer should pass is_vbr=0.0 to spectrum analyzer for CBR files."""
         analyzer = AudioQualityAnalyzer()
 
@@ -260,10 +282,9 @@ class TestAnalyzerIsVbrPropagation:
 
             # Verify spectrum analyzer was called with is_vbr=0.0
             mock_spectrum.assert_called_once()
-            call_kwargs = mock_spectrum.call_args
-            assert call_kwargs[1].get("is_vbr") == 0.0 or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == 0.0)
+            assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_analyze_file_passes_is_vbr_false_for_lossless(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_for_lossless(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Analyzer should pass is_vbr=0.0 for lossless files (not VBR)."""
         analyzer = AudioQualityAnalyzer()
 
@@ -278,10 +299,9 @@ class TestAnalyzerIsVbrPropagation:
             analyzer.analyze_file(str(fake_audio))
 
             mock_spectrum.assert_called_once()
-            call_kwargs = mock_spectrum.call_args
-            assert call_kwargs[1].get("is_vbr") == 0.0 or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == 0.0)
+            assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_analyze_file_passes_is_vbr_false_when_metadata_unavailable(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_when_metadata_unavailable(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Analyzer should default to is_vbr=0.0 when metadata extraction fails."""
         analyzer = AudioQualityAnalyzer()
 
@@ -295,10 +315,9 @@ class TestAnalyzerIsVbrPropagation:
             analyzer.analyze_file(str(fake_audio))
 
             mock_spectrum.assert_called_once()
-            call_kwargs = mock_spectrum.call_args
-            assert call_kwargs[1].get("is_vbr") == 0.0 or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == 0.0)
+            assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_train_passes_is_vbr_to_spectrum_analyzer(self, sample_features: "SpectralFeatures", tmp_path: Path) -> None:
+    def test_train_passes_is_vbr_to_spectrum_analyzer(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
         """Train method should pass is_vbr from metadata to spectrum analyzer."""
         analyzer = AudioQualityAnalyzer()
 
@@ -322,7 +341,7 @@ class TestAnalyzerIsVbrPropagation:
                 return Mock(encoding_type="VBR")
             return Mock(encoding_type="CBR")
 
-        def mock_analyze(path: str, is_vbr: float = 0.0) -> "SpectralFeatures":
+        def mock_analyze(path: str, is_vbr: float = 0.0) -> SpectralFeatures:
             is_vbr_by_path[path] = is_vbr
             return sample_features
 

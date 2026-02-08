@@ -7,7 +7,7 @@ from pathlib import Path
 class TestNoPrintInPlugin:
     """Verify plugin.py uses logger.info instead of print()."""
 
-    def test_no_bare_print_calls(self):
+    def test_no_bare_print_calls(self) -> None:
         """plugin.py should not contain any print() function calls."""
         plugin_path = (
             Path(__file__).parent.parent / "beetsplug" / "bitrater" / "plugin.py"
@@ -27,7 +27,7 @@ class TestNoPrintInPlugin:
             "Use logger.info() instead."
         )
 
-    def test_no_emoji_characters(self):
+    def test_no_emoji_characters(self) -> None:
         """plugin.py should use text markers [OK], [WARN], [FAIL] instead of emoji."""
         plugin_path = (
             Path(__file__).parent.parent / "beetsplug" / "bitrater" / "plugin.py"

@@ -1,5 +1,6 @@
 """Tests for quality classifier."""
 
+from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -25,7 +26,7 @@ class TestQualityClassifier:
         assert svm.gamma == 1
         assert svm.C == 1
 
-    def test_extract_features(self, sample_features: "SpectralFeatures") -> None:
+    def test_extract_features(self, sample_features: SpectralFeatures) -> None:
         """Test feature extraction returns full feature vector."""
         classifier = QualityClassifier()
         features = classifier._extract_features(sample_features)
@@ -34,7 +35,7 @@ class TestQualityClassifier:
         assert features.shape == (181,)
         assert features.dtype == np.float32
 
-    def test_extract_features_includes_is_vbr(self, sample_features: "SpectralFeatures") -> None:
+    def test_extract_features_includes_is_vbr(self, sample_features: SpectralFeatures) -> None:
         """Test that extracted features include is_vbr at the end."""
         classifier = QualityClassifier()
         features = classifier._extract_features(sample_features)
@@ -67,21 +68,21 @@ class TestQualityClassifier:
         with pytest.raises(ValueError):
             classifier.train([], [])
 
-    def test_train_mismatched_lengths_raises(self, sample_features: "SpectralFeatures") -> None:
+    def test_train_mismatched_lengths_raises(self, sample_features: SpectralFeatures) -> None:
         """Test that mismatched features/labels raises error."""
         classifier = QualityClassifier()
 
         with pytest.raises(ValueError):
             classifier.train([sample_features], [0, 1])
 
-    def test_predict_untrained_raises(self, sample_features: "SpectralFeatures") -> None:
+    def test_predict_untrained_raises(self, sample_features: SpectralFeatures) -> None:
         """Test that prediction without training raises error."""
         classifier = QualityClassifier()
 
         with pytest.raises(RuntimeError):
             classifier.predict(sample_features)
 
-    def test_predict_returns_prediction(self, training_features: tuple[list, list], sample_features: "SpectralFeatures") -> None:
+    def test_predict_returns_prediction(self, training_features: tuple[list, list], sample_features: SpectralFeatures) -> None:
         """Test that prediction returns ClassifierPrediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -94,7 +95,7 @@ class TestQualityClassifier:
         assert 0 <= prediction.confidence <= 1
         assert isinstance(prediction.probabilities, dict)
 
-    def test_save_and_load_model(self, training_features: tuple[list, list], temp_model_path, sample_features: "SpectralFeatures") -> None:
+    def test_save_and_load_model(self, training_features: tuple[list, list], temp_model_path, sample_features: SpectralFeatures) -> None:
         """Test model persistence."""
         # Train and save
         classifier1 = QualityClassifier()
@@ -115,7 +116,7 @@ class TestQualityClassifier:
         assert pred1.format_type == pred2.format_type
         assert pred1.estimated_bitrate == pred2.estimated_bitrate
 
-    def test_predict_batch(self, training_features: tuple[list, list], sample_features: "SpectralFeatures", lossless_features: "SpectralFeatures") -> None:
+    def test_predict_batch(self, training_features: tuple[list, list], sample_features: SpectralFeatures, lossless_features: SpectralFeatures) -> None:
         """Test batch prediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features

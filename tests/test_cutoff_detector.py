@@ -9,7 +9,7 @@ from beetsplug.bitrater.cutoff_detector import CutoffDetector, CutoffResult
 class TestCutoffDetector:
     """Test CutoffDetector class."""
 
-    def test_init(self):
+    def test_init(self) -> None:
         """CutoffDetector should initialize with default parameters."""
         detector = CutoffDetector()
         assert detector.min_freq == 15000
@@ -17,7 +17,7 @@ class TestCutoffDetector:
         assert detector.coarse_step == 1000
         assert detector.fine_step == 100
 
-    def test_coarse_scan_finds_128kbps_cutoff(self):
+    def test_coarse_scan_finds_128kbps_cutoff(self) -> None:
         """Coarse scan should find approximate cutoff for 128 kbps (~16 kHz)."""
         detector = CutoffDetector()
         expected_cutoff = CLASS_CUTOFFS["128"]
@@ -32,7 +32,7 @@ class TestCutoffDetector:
         # Should find cutoff within 1 kHz of actual
         assert expected_cutoff - 1000 <= candidate <= expected_cutoff + 1000
 
-    def test_coarse_scan_finds_192kbps_cutoff(self):
+    def test_coarse_scan_finds_192kbps_cutoff(self) -> None:
         """Coarse scan should find approximate cutoff for 192 kbps (~19 kHz)."""
         detector = CutoffDetector()
         expected_cutoff = CLASS_CUTOFFS["192"]
@@ -45,7 +45,7 @@ class TestCutoffDetector:
 
         assert expected_cutoff - 1000 <= candidate <= expected_cutoff + 1000
 
-    def test_fine_scan_refines_cutoff(self):
+    def test_fine_scan_refines_cutoff(self) -> None:
         """Fine scan should refine cutoff to within 100 Hz."""
         detector = CutoffDetector()
         expected_cutoff = CLASS_CUTOFFS["128"]
@@ -64,7 +64,7 @@ class TestCutoffDetector:
         # Should refine to within 200 Hz of actual cutoff
         assert actual_cutoff - 200 <= refined <= actual_cutoff + 200
 
-    def test_gradient_sharp_for_artificial_cutoff(self):
+    def test_gradient_sharp_for_artificial_cutoff(self) -> None:
         """Sharp artificial cutoff should have high gradient."""
         detector = CutoffDetector()
         cutoff = CLASS_CUTOFFS["128"]
@@ -78,7 +78,7 @@ class TestCutoffDetector:
 
         assert gradient > detector.sharp_threshold
 
-    def test_gradient_gradual_for_natural_rolloff(self):
+    def test_gradient_gradual_for_natural_rolloff(self) -> None:
         """Natural gradual rolloff should have low gradient."""
         detector = CutoffDetector()
         cutoff = CLASS_CUTOFFS["128"]
@@ -94,7 +94,7 @@ class TestCutoffDetector:
 
         assert gradient < detector.sharp_threshold
 
-    def test_detect_128kbps_cutoff(self):
+    def test_detect_128kbps_cutoff(self) -> None:
         """Detect should identify 128 kbps cutoff."""
         detector = CutoffDetector()
         expected_cutoff = CLASS_CUTOFFS["128"]
@@ -110,7 +110,7 @@ class TestCutoffDetector:
         assert result.is_sharp is True  # Artificial cutoff
         assert 0.0 <= result.confidence <= 1.0
 
-    def test_detect_lossless_no_cutoff(self):
+    def test_detect_lossless_no_cutoff(self) -> None:
         """Detect should identify lossless with cutoff near Nyquist."""
         detector = CutoffDetector()
 
@@ -122,7 +122,7 @@ class TestCutoffDetector:
 
         assert result.cutoff_frequency > 21000
 
-    def test_detect_uniform_spectrum_no_clear_cutoff(self):
+    def test_detect_uniform_spectrum_no_clear_cutoff(self) -> None:
         """Detector should handle spectrum with no clear cutoff gracefully."""
         detector = CutoffDetector()
 

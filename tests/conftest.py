@@ -91,69 +91,6 @@ def temp_model_path(tmp_path: Path) -> Path:
     return tmp_path / "test_model.pkl"
 
 
-class AnalysisResultBuilder:
-    """Builder for creating AnalysisResult objects with sensible defaults."""
-
-    def __init__(self) -> None:
-        """Initialize with default values."""
-        self.data = {
-            "filename": "test.mp3",
-            "file_format": "mp3",
-            "original_format": "320",
-            "original_bitrate": 320,
-            "confidence": 0.95,
-            "is_transcode": False,
-            "stated_class": "320",
-            "detected_cutoff": 20500,
-            "quality_gap": 0,
-            "stated_bitrate": 320,
-            "warnings": [],
-        }
-
-    def with_low_confidence(self) -> "AnalysisResultBuilder":
-        """Set confidence below threshold."""
-        self.data["confidence"] = 0.5
-        self.data["warnings"] = ["Low confidence in detection: 50.0%"]
-        return self
-
-    def with_transcode(self, transcoded_from: str = "128") -> "AnalysisResultBuilder":
-        """Set up as a transcode."""
-        self.data["is_transcode"] = True
-        self.data["original_format"] = transcoded_from
-        self.data["original_bitrate"] = 128
-        self.data["stated_class"] = "LOSSLESS"
-        self.data["detected_cutoff"] = 16000
-        self.data["quality_gap"] = 6
-        self.data["transcoded_from"] = transcoded_from
-        self.data["file_format"] = "flac"
-        self.data["filename"] = "fake_lossless.flac"
-        self.data["stated_bitrate"] = None
-        self.data["warnings"] = [f"File appears to be transcoded from {transcoded_from}"]
-        return self
-
-    def with_bitrate_mismatch(self) -> "AnalysisResultBuilder":
-        """Set up with bitrate mismatch."""
-        self.data["original_format"] = "128"
-        self.data["original_bitrate"] = 128
-        self.data["stated_bitrate"] = 320
-        self.data["stated_class"] = "320"
-        self.data["detected_cutoff"] = 16000
-        self.data["filename"] = "upsampled.mp3"
-        self.data["warnings"] = ["Stated bitrate (320 kbps) much higher than detected (128 kbps)"]
-        return self
-
-    def build(self) -> "AnalysisResult":
-        """Build and return AnalysisResult."""
-        from beetsplug.bitrater.types import AnalysisResult
-        return AnalysisResult(**self.data)
-
-
-@pytest.fixture
-def analysis_result_builder() -> AnalysisResultBuilder:
-    """Provide an AnalysisResult builder for tests."""
-    return AnalysisResultBuilder()
-
-
 @pytest.fixture
 def training_features() -> tuple[list, list]:
     """Create a set of training features for different classes.
@@ -179,6 +116,7 @@ def training_features() -> tuple[list, list]:
         CBR_320 = 5
         LOSSLESS = 6
     
+    rng = np.random.default_rng(42)
     num_bands = SPECTRAL_PARAMS["num_bands"]
     features_list = []
     labels = []
@@ -186,7 +124,7 @@ def training_features() -> tuple[list, list]:
     # Create 10 samples per class (7 classes)
     for class_idx in TrainingClass:
         for _ in range(10):
-            features = np.random.rand(num_bands).astype(np.float32)
+            features = rng.random(num_bands).astype(np.float32)
 
             # Add class-specific characteristics based on bitrate cutoff frequencies
             if class_idx == TrainingClass.CBR_128:  # 128 kbps - sharp cutoff early
@@ -217,7 +155,7 @@ def training_features() -> tuple[list, list]:
             is_vbr = 1.0 if class_idx in [TrainingClass.VBR_V2, TrainingClass.VBR_V0] else 0.0
 
             # Class-appropriate SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
-            noise = np.random.rand(6).astype(np.float32) * 0.05
+            noise = rng.random(6).astype(np.float32) * 0.05
             if class_idx == TrainingClass.CBR_128:
                 sfb21 = np.array([0.02, 0.2, 0.1, 0.01, 0.02, 0.05], dtype=np.float32) + noise
             elif class_idx == TrainingClass.VBR_V2:
@@ -234,7 +172,7 @@ def training_features() -> tuple[list, list]:
                 sfb21 = np.array([0.60, 0.85, 0.70, 0.02, 0.03, 0.65], dtype=np.float32) + noise
 
             # Class-appropriate rolloff features (slope, total_drop, ratio_early, ratio_late)
-            noise_r = np.random.rand(4).astype(np.float32) * 0.1
+            noise_r = rng.random(4).astype(np.float32) * 0.1
             if class_idx == TrainingClass.CBR_128:
                 rolloff = np.array([-2.5, -30.0, 0.2, 0.05], dtype=np.float32) + noise_r
             elif class_idx == TrainingClass.VBR_V2:

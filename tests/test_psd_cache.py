@@ -9,7 +9,7 @@ from beetsplug.bitrater.spectrum import SpectrumAnalyzer
 class TestPsdCache:
     """Tests for in-memory PSD caching between analyze_file and get_psd."""
 
-    def test_get_psd_returns_cached_after_analyze_file(self, tmp_path, monkeypatch):
+    def test_get_psd_returns_cached_after_analyze_file(self, tmp_path, monkeypatch) -> None:
         """get_psd should return cached PSD if analyze_file was just called on same file."""
         analyzer = SpectrumAnalyzer(cache_dir=None)
         load_count = 0
@@ -34,7 +34,7 @@ class TestPsdCache:
         assert psd_result is not None
         assert load_count == first_load_count, "get_psd should not reload audio after analyze_file"
 
-    def test_get_psd_cache_cleared_on_new_analyze(self, tmp_path, monkeypatch):
+    def test_get_psd_cache_cleared_on_new_analyze(self, tmp_path, monkeypatch) -> None:
         """get_psd cache should not persist across different analyze_file calls."""
         analyzer = SpectrumAnalyzer(cache_dir=None)
 
@@ -58,7 +58,7 @@ class TestPsdCache:
         # (it will reload from disk, which is correct)
         assert analyzer._last_psd_path != str(file1)
 
-    def test_get_psd_returns_tuple(self, tmp_path, monkeypatch):
+    def test_get_psd_returns_tuple(self, tmp_path, monkeypatch) -> None:
         """get_psd should return (psd, freqs) tuple from cache."""
         analyzer = SpectrumAnalyzer(cache_dir=None)
 

@@ -11,7 +11,7 @@ from beetsplug.bitrater.training_data.feature_cache import FeatureCache
 class TestFeatureCacheNoPickle:
     """Tests that cache uses JSON metadata instead of pickled objects."""
 
-    def test_save_and_get_roundtrip(self, tmp_path):
+    def test_save_and_get_roundtrip(self, tmp_path) -> None:
         """Features and metadata should survive a save/get roundtrip."""
         cache = FeatureCache(tmp_path / "cache")
         features = np.random.rand(181).astype(np.float32)
@@ -44,7 +44,7 @@ class TestFeatureCacheNoPickle:
         assert loaded_metadata["n_bands"] == 150
         assert loaded_metadata["approach"] == "encoder_agnostic_v8"
 
-    def test_saved_npz_loads_without_allow_pickle(self, tmp_path):
+    def test_saved_npz_loads_without_allow_pickle(self, tmp_path) -> None:
         """Saved cache file should be loadable with allow_pickle=False."""
         cache = FeatureCache(tmp_path / "cache")
         features = np.random.rand(181).astype(np.float32)
@@ -65,7 +65,7 @@ class TestFeatureCacheNoPickle:
             assert "features" in data
             assert "metadata_json" in data
 
-    def test_metadata_stored_as_json_bytes(self, tmp_path):
+    def test_metadata_stored_as_json_bytes(self, tmp_path) -> None:
         """Metadata should be encoded as JSON bytes, not pickled objects."""
         cache = FeatureCache(tmp_path / "cache")
         features = np.random.rand(181).astype(np.float32)
@@ -86,7 +86,7 @@ class TestFeatureCacheNoPickle:
             assert loaded["n_bands"] == 150
             assert loaded["approach"] == "encoder_agnostic_v8"
 
-    def test_legacy_format_returns_none(self, tmp_path):
+    def test_legacy_format_returns_none(self, tmp_path) -> None:
         """Old pickled format should return None (force re-cache)."""
         cache = FeatureCache(tmp_path / "cache")
 

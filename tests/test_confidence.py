@@ -8,7 +8,7 @@ from beetsplug.bitrater.constants import CLASS_CUTOFFS, CUTOFF_TOLERANCE
 class TestConfidenceCalculator:
     """Test confidence penalty calculations."""
 
-    def test_no_penalty_when_cutoff_matches(self):
+    def test_no_penalty_when_cutoff_matches(self) -> None:
         """No penalty when detected cutoff matches expected within tolerance."""
         calc = ConfidenceCalculator()
         expected_cutoff = CLASS_CUTOFFS["320"]
@@ -25,7 +25,7 @@ class TestConfidenceCalculator:
         assert result.final_confidence >= 0.85  # Minimal penalty
         assert len(result.warnings) == 0
 
-    def test_penalty_for_cutoff_mismatch(self):
+    def test_penalty_for_cutoff_mismatch(self) -> None:
         """Penalty applied when cutoff doesn't match class."""
         calc = ConfidenceCalculator()
 
@@ -41,7 +41,7 @@ class TestConfidenceCalculator:
         assert result.final_confidence < 0.7  # Significant penalty
         assert any("mismatch" in w.lower() for w in result.warnings)
 
-    def test_penalty_for_soft_gradient(self):
+    def test_penalty_for_soft_gradient(self) -> None:
         """Penalty applied for gradual rolloff (natural, not artificial)."""
         calc = ConfidenceCalculator()
         expected_cutoff = CLASS_CUTOFFS["128"]
@@ -56,7 +56,7 @@ class TestConfidenceCalculator:
         assert result.final_confidence < 0.85
         assert any("rolloff" in w.lower() or "natural" in w.lower() for w in result.warnings)
 
-    def test_minimum_confidence_floor(self):
+    def test_minimum_confidence_floor(self) -> None:
         """Confidence should never go below minimum (0.1)."""
         calc = ConfidenceCalculator()
 

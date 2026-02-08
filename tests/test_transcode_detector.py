@@ -58,4 +58,4 @@ class TestTranscodeDetector:
         )
 
         assert result.is_transcode is False
-        assert result.quality_gap == 0  # No gap when detected > stated  # No gap when detected > stated
+        assert result.quality_gap == 0  # No gap when detected > stated
