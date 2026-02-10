@@ -89,17 +89,19 @@ class AudioEncoder:
             self.create_uptranscoded_files(max_workers)
 
     def _create_mp3_files(self, max_workers: int | None = None) -> None:
-        """Create MP3 files from source FLAC/WAV files (Stage 1)."""
-        # Find source files
+        """Create MP3 files from source FLAC/WAV files (Stage 1).
+
+        Uses a single global thread pool across all files so that --workers N
+        can keep N threads busy even when N exceeds the number of encoding
+        formats per file.
+        """
         source_files = self._collect_source_files()
         if not source_files:
             raise ValueError(f"No source files found in {self.source_dir}")
 
-        # Calculate total tasks
         total_formats = len(CBR_BITRATES) + len(VBR_PRESETS)
         progress = ProgressTracker(len(source_files), total_formats, phase_name="MP3 Encoding")
 
-        # Use number of CPU cores minus 1 for workers if not specified
         if max_workers is None:
             max_workers = max(1, os.cpu_count() - 1)
 
@@ -111,12 +113,70 @@ class AudioEncoder:
         )
         logger.info(f"└── Using {max_workers} worker threads")
 
+        # Cap concurrent in-flight WAVs to limit disk usage while keeping
+        # the thread pool fed.  We want enough files queued so workers
+        # never starve while the main thread decodes the next WAV.
+        # 2 * ceil(workers/formats) keeps a full batch queued while
+        # the current batch drains.
+        max_inflight = max(3, -(-max_workers // total_formats) * 2)
+
+        # Each entry: (wav_path, futures_list, filename, task_count)
+        in_flight: list[
+            tuple[Path | None, list[concurrent.futures.Future], str, int]
+        ] = []
+
         try:
-            for source_file in source_files:
-                self._process_file(source_file, max_workers, progress)
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers
+            ) as executor:
+                for source_file in source_files:
+                    # Drain completed files to free WAVs and keep slots open
+                    self._drain_ready_files(in_flight, progress)
+                    # If still at capacity, block on the oldest
+                    while len(in_flight) >= max_inflight:
+                        self._drain_completed_file(in_flight, progress)
+
+                    sanitized_name = self._sanitize_filename(source_file.stem)
+
+                    # Ensure lossless symlink exists for every source file
+                    self._ensure_lossless_symlink(source_file, sanitized_name)
+
+                    try:
+                        prepared = self._prepare_file(
+                            source_file, sanitized_name
+                        )
+                    except Exception as e:
+                        logger.error(f"Error preparing {source_file.name}: {e}")
+                        continue
+
+                    if prepared is None:
+                        continue
+
+                    temp_wav = prepared
+                    tasks = self._create_encoding_tasks(temp_wav, sanitized_name)
+
+                    if not tasks:
+                        logger.debug(f"  {source_file.name}: all formats exist, skipping")
+                        self._cleanup_temp_file(temp_wav)
+                        continue
+
+                    futures = [
+                        executor.submit(self._run_encode, task) for task in tasks
+                    ]
+                    in_flight.append(
+                        (temp_wav, futures, source_file.name, len(tasks))
+                    )
+
+                # Drain remaining in-flight files
+                while in_flight:
+                    self._drain_completed_file(in_flight, progress)
 
         except KeyboardInterrupt:
             logger.warning("\nMP3 encoding interrupted by user")
+            for wav_path, futures, _, _ in in_flight:
+                for f in futures:
+                    f.cancel()
+                self._cleanup_temp_file(wav_path)
             raise
 
         finally:
@@ -131,66 +191,89 @@ class AudioEncoder:
         logger.info(f"Found {len(source_files)} audio files")
         return source_files
 
-    def _process_file(
-        self, source_file: Path, max_workers: int, progress: "ProgressTracker"
+    def _prepare_file(self, source_file: Path, sanitized_name: str) -> Path | None:
+        """Decode source file to WAV and return the wav path for encoding.
+
+        Returns:
+            temp_wav_path, or None if all outputs already exist.
+        """
+        if self._check_outputs_exist(sanitized_name):
+            logger.debug(f"Skipping {source_file.name} - already encoded")
+            return None
+
+        # Create temporary WAV in output dir (avoids writes to slow source disk)
+        temp_dir = self.output_dir / ".tmp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_wav = temp_dir / f"temp_{source_file.stem}.wav"
+
+        logger.debug(f"Decoding: {source_file.name}")
+
+        if source_file.suffix.lower() == ".flac":
+            self._decode_flac(source_file, temp_wav)
+        else:
+            temp_wav = source_file
+            logger.debug(f"  Using existing WAV: {source_file.name}")
+
+        return temp_wav
+
+    def _ensure_lossless_symlink(self, source_file: Path, sanitized_name: str) -> None:
+        """Create a symlink in lossless/ pointing to the original source file."""
+        lossless_dir = self.output_dir / "lossless"
+        lossless_dir.mkdir(parents=True, exist_ok=True)
+        symlink_path = lossless_dir / f"{sanitized_name}{source_file.suffix}"
+        if not symlink_path.exists():
+            try:
+                symlink_path.symlink_to(source_file.resolve())
+            except OSError as e:
+                logger.error(f"Failed to create lossless symlink for {source_file.name}: {e}")
+
+    def _drain_completed_file(
+        self,
+        in_flight: list[
+            tuple["Path | None", list[concurrent.futures.Future], str, int]
+        ],
+        progress: "ProgressTracker",
     ) -> None:
-        """Process a single source file through needed formats."""
-        temp_wav = None
-        progress.start_file()
-
+        """Wait for the oldest in-flight file to finish, update progress, clean up."""
+        wav_path, futures, filename, task_count = in_flight.pop(0)
         try:
-            # Create temporary WAV in output dir (avoids writes to slow source disk)
-            temp_dir = self.output_dir / ".tmp"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_wav = temp_dir / f"temp_{source_file.stem}.wav"
-            sanitized_name = self._sanitize_filename(source_file.stem)
-
-            # Check if all outputs exist
-            if self._check_outputs_exist(sanitized_name):
-                logger.info(f"\nSkipping {source_file.name} - already encoded")
-                return
-
-            logger.info(f"\nProcessing: {source_file.name}")
-
-            # Convert to WAV if needed
-            if source_file.suffix.lower() == ".flac":
-                self._decode_flac(source_file, temp_wav)
-            else:
-                temp_wav = source_file
-                logger.info("├── Using existing WAV file")
-
-            # Create encoding tasks
-            tasks = self._create_encoding_tasks(temp_wav, sanitized_name)
-
-            if not tasks:
-                logger.info("└── No encoding needed - all formats exist")
-                return
-
-            total_tasks = len(tasks)
             successful = 0
-
-            # Process encodings in parallel
-            logger.info(f"└── Starting parallel encoding with {max_workers} workers")
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=max_workers
-            ) as executor:
-                futures = [executor.submit(self._run_encode, task) for task in tasks]
-                completed = 0
-
-                for future in concurrent.futures.as_completed(futures):
-                    completed += 1
+            for future in concurrent.futures.as_completed(futures):
+                try:
                     if future.result():
                         successful += 1
-
-                    progress.update_file_progress(
-                        completed, total_tasks, source_file.name
-                    )
-
-        except Exception as e:
-            logger.error(f"Error processing {source_file.name}: {str(e)}")
-
+                except Exception as e:
+                    logger.error(f"Encoding task failed for {filename}: {e}")
+                progress.complete_task()
+            progress.complete_file(filename, task_count, successful)
         finally:
-            self._cleanup_temp_file(temp_wav)
+            self._cleanup_temp_file(wav_path)
+
+    def _drain_ready_files(
+        self,
+        in_flight: list[
+            tuple["Path | None", list[concurrent.futures.Future], str, int]
+        ],
+        progress: "ProgressTracker",
+    ) -> None:
+        """Non-blocking drain: collect any in-flight files whose futures all finished."""
+        i = 0
+        while i < len(in_flight):
+            wav_path, futures, filename, task_count = in_flight[i]
+            if all(f.done() for f in futures):
+                in_flight.pop(i)
+                successful = sum(
+                    1 for f in futures
+                    if not f.exception() and f.result()
+                )
+                for f in futures:
+                    if f.exception():
+                        logger.error(f"Encoding task failed for {filename}: {f.exception()}")
+                    progress.complete_task()
+                progress.complete_file(filename, task_count, successful)
+                self._cleanup_temp_file(wav_path)
+            else:
+                i += 1
 
     def _decode_flac(self, source_file: Path, output_path: Path) -> None:
         """Decode FLAC to WAV format."""
@@ -206,7 +289,7 @@ class AudioEncoder:
             ]
             subprocess.run(cmd, check=True, capture_output=True, text=True)
             wav_time = time.time() - start_time
-            logger.info(f"├── WAV conversion completed in {wav_time:.1f}s")
+            logger.debug(f"WAV decode: {source_file.name} in {wav_time:.1f}s")
 
         except subprocess.CalledProcessError as e:
             logger.error(f"└── FLAC decoding failed: {e.stderr}")
@@ -519,46 +602,59 @@ class ProgressTracker:
         self.completed_files = 0
         self.completed_tasks = 0
         self.start_time = time.time()
-        self.current_file_start = time.time()
         self.phase_name = phase_name
+
+    def complete_task(self) -> None:
+        """Record one encoding task completed."""
+        self.completed_tasks += 1
+
+    def complete_file(
+        self, filename: str, task_count: int, successful: int
+    ) -> None:
+        """Record a file fully completed and log progress."""
+        self.completed_files += 1
+        elapsed = time.time() - self.start_time
+        overall_pct = (
+            (self.completed_tasks / self.total_tasks * 100)
+            if self.total_tasks
+            else 0
+        )
+        files_per_sec = self.completed_files / elapsed if elapsed > 0 else 0
+        remaining = self.total_files - self.completed_files
+        eta = remaining / files_per_sec if files_per_sec > 0 else 0
+
+        logger.info(
+            f"Completed {filename}: {successful}/{task_count} formats | "
+            f"Overall: {self.completed_files}/{self.total_files} files ({overall_pct:.0f}%) | "
+            f"ETA: {timedelta(seconds=int(eta))}"
+        )
 
     def update_file_progress(
         self, completed_tasks: int, total_file_tasks: int, filename: str
     ) -> None:
-        """Update progress for current file."""
-        file_time = time.time() - self.current_file_start
+        """Update progress for current file (used by uptranscode phase)."""
         self.completed_tasks += completed_tasks
-
-        # Calculate overall progress
-        overall_percent = (self.completed_tasks / self.total_tasks) * 100
-        file_percent = (completed_tasks / total_file_tasks) * 100
-
-        # Calculate time estimates
         elapsed = time.time() - self.start_time
-        tasks_per_second = self.completed_tasks / elapsed if elapsed > 0 else 0
-        remaining_tasks = self.total_tasks - self.completed_tasks
-        eta = remaining_tasks / tasks_per_second if tasks_per_second > 0 else 0
-
-        logger.info(f"\nProgress Update for {filename}:")
-        logger.info(
-            f"├── File Progress: {completed_tasks}/{total_file_tasks} formats ({file_percent:.1f}%)"
+        overall_pct = (
+            (self.completed_tasks / self.total_tasks * 100)
+            if self.total_tasks
+            else 0
         )
-        logger.info(f"├── Time for this file: {timedelta(seconds=int(file_time))}")
-        logger.info(
-            f"├── Overall Progress: {self.completed_tasks}/{self.total_tasks} total encodes ({overall_percent:.1f}%)"
-        )
-        logger.info(f"├── Elapsed Time: {timedelta(seconds=int(elapsed))}")
-        logger.info(f"└── Estimated Time Remaining: {timedelta(seconds=int(eta))}")
+        tasks_per_sec = self.completed_tasks / elapsed if elapsed > 0 else 0
+        remaining = self.total_tasks - self.completed_tasks
+        eta = remaining / tasks_per_sec if tasks_per_sec > 0 else 0
 
-    def start_file(self) -> None:
-        """Mark the start of processing a new file."""
-        self.current_file_start = time.time()
-        self.completed_files += 1
+        logger.info(
+            f"Uptranscoded {filename} | "
+            f"{self.completed_tasks}/{self.total_tasks} ({overall_pct:.0f}%) | "
+            f"ETA: {timedelta(seconds=int(eta))}"
+        )
 
     def finish(self) -> None:
         """Log final statistics."""
         total_time = time.time() - self.start_time
-        avg_time_per_file = total_time / self.total_files if self.total_files > 0 else 0
+        processed = self.completed_files if self.completed_files > 0 else self.total_files
+        avg_time_per_file = total_time / processed if processed > 0 else 0
 
         logger.info(f"\n{self.phase_name} Summary:")
         logger.info("=" * 50)

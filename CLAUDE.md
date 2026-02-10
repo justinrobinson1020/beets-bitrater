@@ -2,6 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Environment
+
+This is the **server development environment** running on CT 113 (beets container) in a Proxmox homelab.
+
+- **Container**: LXC 113, Ubuntu 22.04, Python 3.10.12
+- **Project location**: /root/beets-bitrater/
+- **Training data**: /mnt/bitrater/training_data/ (NVMe-backed ZFS dataset)
+- **Source FLACs**: /music/red_downloads/flac/ (mojo-dojo pool, ~2,400 files, 85GB)
+- **Feature cache**: ~/.cache/bitrater/features/
+
+### Storage Layout
+
+| Path | Storage | Purpose |
+|------|---------|---------|
+| /root/beets-bitrater/ | nvme-pool (container root) | Code, venv, tests, models |
+| /mnt/bitrater/training_data/encoded/ | nvme-pool (ZFS dataset) | Encoded MP3 training data |
+| /music/red_downloads/flac/ | mojo-dojo (spinning disk) | Source lossless FLACs |
+| ~/.cache/bitrater/features/ | nvme-pool (container root) | Feature extraction cache |
+
 ## Development Commands
 
 ### Installation and Setup (using uv)
@@ -67,14 +86,14 @@ uv run ruff check --fix bitrater/ beetsplug/ tests/
 # Analyze audio files
 uv run bitrater analyze <file-or-dir>
 
-# Train classifier
-uv run bitrater train --source-dir <dir> --save-model models/trained_model.pkl
+# Train classifier from encoded training data
+uv run bitrater train --source-dir /mnt/bitrater/training_data/encoded --save-model models/trained_model.pkl --threads 8
 
 # Validate accuracy
-uv run bitrater validate --source-dir <dir>
+uv run bitrater validate --source-dir /mnt/bitrater/training_data/encoded
 
-# Generate training data
-uv run bitrater transcode --source-dir <dir> --output-dir <dir>
+# Generate training data (transcode FLACs to MP3s at all bitrate classes)
+uv run bitrater transcode --source-dir /music/red_downloads/flac --output-dir /mnt/bitrater/training_data/encoded --workers 8
 ```
 
 ### Beets Plugin Usage
@@ -113,16 +132,27 @@ The project has two packages:
 3. **QualityClassifier** (`classifier.py`): SVM-based classification of audio quality
 4. **AudioQualityAnalyzer** (`analyzer.py`): Orchestrates the analysis pipeline
 
+**Feature Cache** (`bitrater/feature_cache.py`):
+- NPZ format with SHA256 file keys
+- Thread-safe with fcntl file locking
+- JSON metadata (no pickle), safe to load with allow_pickle=False
+- Default location: ~/.cache/bitrater/features/
+
+**Transcoding** (`bitrater/transcode.py`):
+- Generates training data by encoding FLACs to MP3 at all bitrate classes
+- Skips already-processed files (safe to interrupt and resume)
+- Two stages: MP3 encoding + uptranscoded FLAC generation
+
 ### Key Features
 
 **Spectral Analysis**:
 - Frequency band analysis using 256 mel-scale bands
 - Detection of compression artifacts and frequency cutoffs
-- Ultrasonic content analysis for lossless detection
+- SFB21 band analysis and spectral rolloff features
 - Statistical features: spectral flatness, rolloff, contrast
 
 **Machine Learning Classification**:
-- SVM classifier with RBF kernel for bitrate prediction
+- SVM classifier with polynomial kernel (degree=2) for bitrate prediction
 - Supports CBR bitrates: 128, 160, 192, 224, 256, 320 kbps
 - VBR preset detection: V0, V2, V4, V6
 - Lossless vs lossy format classification
@@ -132,6 +162,9 @@ The project has two packages:
 - Identifies lossless files transcoded from lossy sources
 - Metadata consistency checking
 - Confidence scoring for all predictions
+
+**Feature Set (181 total features):**
+- 150 PSD bands + 6 cutoff + 8 temporal + 6 artifact + 6 SFB21 + 4 rolloff + 1 is_vbr
 
 ### Database Fields
 
@@ -146,14 +179,21 @@ The plugin adds these fields to beets items:
 
 ### Training Data Structure
 
-Training data should be organized as:
+Training data is organized as:
 ```
-training_data/
-├── 128/          # 128 kbps CBR files
-├── 320/          # 320 kbps CBR files
-├── v0/           # V0 VBR files
-├── lossless/     # FLAC/WAV files
-└── encoded/      # Transcoded test files
+/mnt/bitrater/training_data/encoded/
+├── lossy/
+│   ├── 128/          # 128 kbps CBR MP3s
+│   ├── 192/          # 192 kbps CBR
+│   ├── 256/          # 256 kbps CBR
+│   ├── 320/          # 320 kbps CBR
+│   ├── v0/           # V0 VBR preset
+│   ├── v2/           # V2 VBR preset
+│   └── v4/           # V4 VBR preset
+└── uptranscoded/
+    ├── from_128/     # 128->FLAC uptranscodes
+    ├── from_v2/      # V2->FLAC uptranscodes
+    └── ...
 ```
 
 ### Configuration Options
@@ -176,7 +216,7 @@ This project implements MP3 bitrate detection based on the paper **"MP3 Bit Rate
 
 **Key methodological alignment:**
 - Train/test split: **20% train / 80% test** (matches paper's 500/2012 sample split)
-- SVM configuration: **Polynomial kernel** with degree=2, γ=1, C=1
+- SVM configuration: **Polynomial kernel** with degree=2, gamma=1, C=1
 - Feature engineering: PSD-based frequency analysis with encoder-agnostic features
 
 ### Classification Problem
@@ -189,29 +229,6 @@ This project implements MP3 bitrate detection based on the paper **"MP3 Bit Rate
 5. 256 kbps CBR
 6. 320 kbps CBR (highest lossy quality)
 7. LOSSLESS (FLAC/WAV)
-
-This extends the paper's 5-class problem (128, 192, 224, 256, 320) by adding VBR presets and lossless detection, which are critical for real-world music library analysis.
-
-### Feature Set (171 total features)
-
-**Power Spectral Density (150 features):**
-- 150 mel-scale bands covering 16-22 kHz frequency range
-- Captures compression artifacts and frequency cutoffs
-
-**Cutoff Detection (6 features):**
-- Encoder-agnostic frequency transition detection
-- Identifies sharp rolloffs characteristic of lossy encoders
-
-**Temporal Features (8 features):**
-- VBR vs CBR discrimination
-- Bitrate variability analysis
-
-**Artifact Features (6 features):**
-- Transcoding detection
-- Compression artifact quantification
-
-**Format Flag (1 feature):**
-- Binary is_vbr indicator
 
 ### Current Performance Baseline
 
@@ -227,11 +244,17 @@ This extends the paper's 5-class problem (128, 192, 224, 256, 320) by adding VBR
 - LOSSLESS: ~62% (needs improvement)
 
 **Key challenges:**
-- VBR preset confusion (V2 ↔ 192, V0 ↔ 256)
+- VBR preset confusion (V2 <-> 192, V0 <-> 256)
 - LOSSLESS vs 320 kbps separation (requires 20-22 kHz analysis)
 - Limited training data for middle-quality classes
 
-The polynomial kernel (d=2) is specifically chosen to capture quadratic feature interactions between PSD bands, which better models how frequency cutoffs manifest compared to the more flexible but overfitting-prone RBF kernel.
+### Performance Profile
+
+- **FFT/STFT = 78%** of per-file feature extraction time
+- **Audio loading = 22%** (I/O bound)
+- Long file (6.7min): ~4.2s total, Short file (2.8min): ~1.6s total
+- Parallelism: joblib with threading backend (analysis) or loky backend (training)
+- Thread safety: aggressive clamping via env vars at module import + threadpool_limits
 
 ### Testing
 
@@ -242,14 +265,9 @@ Test files are organized under `tests/`:
 - `conftest.py`: Shared test fixtures
 - `data/`: Test audio files (original and transcoded)
 
-The plugin uses spectral analysis techniques from research on MP3 quality detection through frequency spectrum analysis.
+132 tests, all passing.
 
 ## Development Workflow
 
-**Always use superpowers skills for development tasks.** Before implementing features, fixing bugs, or making significant changes:
-
-1. Check available skills and use them when applicable
-2. Use `superpowers:brainstorming` before coding new features
-3. Use `superpowers:test-driven-development` for implementations
-4. Use `superpowers:systematic-debugging` when investigating issues
-5. Use `superpowers:verification-before-completion` before claiming work is done
+- Never reference claude or claude code in commit messages
+- Always use bash (not zsh) on this Linux server
