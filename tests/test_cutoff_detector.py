@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from beetsplug.bitrater.constants import CLASS_CUTOFFS
-from beetsplug.bitrater.cutoff_detector import CutoffDetector, CutoffResult
+from bitrater.constants import CLASS_CUTOFFS
+from bitrater.cutoff_detector import CutoffDetector, CutoffResult
 
 
 class TestCutoffDetector:

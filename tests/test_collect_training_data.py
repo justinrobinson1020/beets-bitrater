@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
-from beetsplug.bitrater.constants import CLASS_LABELS
+from bitrater.analyzer import AudioQualityAnalyzer
+from bitrater.constants import CLASS_LABELS
 
 
 class TestCollectTrainingData:

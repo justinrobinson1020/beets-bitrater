@@ -1,7 +1,7 @@
 """Tests for transcode detection logic."""
 
-from beetsplug.bitrater.constants import QUALITY_RANK
-from beetsplug.bitrater.transcode_detector import TranscodeDetector
+from bitrater.constants import QUALITY_RANK
+from bitrater.transcode_detector import TranscodeDetector
 
 
 class TestTranscodeDetector:

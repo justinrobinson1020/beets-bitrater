@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from beetsplug.bitrater.file_analyzer import FileAnalyzer
+from bitrater.file_analyzer import FileAnalyzer
 
 
 class TestFileAnalyzerDispatch:
@@ -79,7 +79,7 @@ class TestAnalyzeMp3:
         )
         mock_audio = Mock(info=mock_info, tags=None)
 
-        with patch("beetsplug.bitrater.file_analyzer.MP3", return_value=mock_audio):
+        with patch("bitrater.file_analyzer.MP3", return_value=mock_audio):
             result = fa._analyze_mp3(f)
 
         assert result.format == "mp3"
@@ -108,7 +108,7 @@ class TestAnalyzeMp3:
         mock_audio.tags.__contains__ = lambda self, key: key == "TSSE"
         mock_audio.tags.__getitem__ = lambda self, key: "LAME V0"
 
-        with patch("beetsplug.bitrater.file_analyzer.MP3", return_value=mock_audio):
+        with patch("bitrater.file_analyzer.MP3", return_value=mock_audio):
             result = fa._analyze_mp3(f)
 
         assert result.encoding_type == "VBR"
@@ -186,7 +186,7 @@ class TestAnalyzeFlac:
         mock_tags.get.return_value = ["reference libFLAC 1.3.3"]
         mock_audio = Mock(info=mock_info, tags=mock_tags)
 
-        with patch("beetsplug.bitrater.file_analyzer.FLAC", return_value=mock_audio):
+        with patch("bitrater.file_analyzer.FLAC", return_value=mock_audio):
             result = fa._analyze_flac(f)
 
         assert result.format == "flac"
@@ -203,7 +203,7 @@ class TestAnalyzeFlac:
         mock_info = Mock(sample_rate=44100, length=120.0, channels=2, bits_per_sample=16)
         mock_audio = Mock(info=mock_info, tags=None)
 
-        with patch("beetsplug.bitrater.file_analyzer.FLAC", return_value=mock_audio):
+        with patch("bitrater.file_analyzer.FLAC", return_value=mock_audio):
             result = fa._analyze_flac(f)
 
         assert result.encoder == "Unknown"
@@ -218,7 +218,7 @@ class TestAnalyzeErrorHandling:
         f = tmp_path / "test.mp3"
         f.write_bytes(b"fake")
 
-        with patch("beetsplug.bitrater.file_analyzer.MP3", side_effect=ValueError("corrupt")):
+        with patch("bitrater.file_analyzer.MP3", side_effect=ValueError("corrupt")):
             result = fa.analyze(str(f))
 
         assert result is None
@@ -229,7 +229,7 @@ class TestAnalyzeErrorHandling:
         f = tmp_path / "test.mp3"
         f.write_bytes(b"fake")
 
-        with patch("beetsplug.bitrater.file_analyzer.MP3", side_effect=OSError("disk error")):
+        with patch("bitrater.file_analyzer.MP3", side_effect=OSError("disk error")):
             result = fa.analyze(str(f))
 
         assert result is None

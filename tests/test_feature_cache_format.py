@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.training_data.feature_cache import FeatureCache
+from bitrater.feature_cache import FeatureCache
 
 
 class TestFeatureCacheNoPickle:

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
+from bitrater.analyzer import AudioQualityAnalyzer
 
 
 class TestDynamicWorkerCount:
@@ -122,7 +122,7 @@ class TestExtractFeaturesWorker:
     @pytest.fixture(autouse=True)
     def reset_worker_state(self) -> None:
         """Reset worker globals before each test."""
-        import beetsplug.bitrater.analyzer as analyzer_module
+        import bitrater.analyzer as analyzer_module
         # Reset the worker singleton state
         analyzer_module._worker_initialized = False
         analyzer_module._worker_analyzer = None
@@ -135,7 +135,7 @@ class TestExtractFeaturesWorker:
 
     def test_extract_features_worker_returns_tuple(self, sample_features: SpectralFeatures, tmp_path) -> None:
         """Worker function should return (file_path, features) tuple for valid file."""
-        from beetsplug.bitrater.analyzer import _extract_features_worker
+        from bitrater.analyzer import _extract_features_worker
 
         # Create a real audio file
         audio_file = tmp_path / "test.mp3"
@@ -143,7 +143,7 @@ class TestExtractFeaturesWorker:
 
         # Mock the SpectrumAnalyzer to return features
         # Patch at the source module since worker uses lazy import
-        with patch("beetsplug.bitrater.spectrum.SpectrumAnalyzer") as mock_spectrum:
+        with patch("bitrater.spectrum.SpectrumAnalyzer") as mock_spectrum:
             mock_instance = mock_spectrum.return_value
             mock_instance.analyze_file.return_value = sample_features
 
@@ -158,7 +158,7 @@ class TestExtractFeaturesWorker:
 
     def test_extract_features_worker_handles_missing_file(self) -> None:
         """Worker function should return (file_path, None) for missing file."""
-        from beetsplug.bitrater.analyzer import _extract_features_worker
+        from bitrater.analyzer import _extract_features_worker
 
         result = _extract_features_worker("/nonexistent/file.mp3")
 
@@ -210,8 +210,8 @@ class TestJoblibIntegration:
             files[str(f)] = i % 7
 
         # Mock parallel_config and Parallel to verify configuration
-        with patch("beetsplug.bitrater.analyzer.parallel_config") as mock_config:
-            with patch("beetsplug.bitrater.analyzer.Parallel") as mock_parallel:
+        with patch("bitrater.analyzer.parallel_config") as mock_config:
+            with patch("bitrater.analyzer.Parallel") as mock_parallel:
                 # Make Parallel return an empty list to avoid further processing
                 mock_parallel.return_value = MagicMock(return_value=[])
                 mock_config.return_value.__enter__ = MagicMock()
@@ -247,7 +247,7 @@ class TestJoblibIntegration:
 
         # Mock Parallel to return controlled feature tuples (bypasses loky subprocess)
         mock_results = [(path, sample_features) for path in files.keys()]
-        with patch("beetsplug.bitrater.analyzer.Parallel") as mock_parallel_cls:
+        with patch("bitrater.analyzer.Parallel") as mock_parallel_cls:
             mock_parallel_cls.return_value = Mock(return_value=mock_results)
             result = analyzer.train_parallel(files, num_workers=1)
 

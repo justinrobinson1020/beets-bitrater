@@ -104,7 +104,6 @@ name = "beets-bitrater"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "beets" },
     { name = "librosa" },
     { name = "mutagen" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -114,6 +113,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+beets = [
+    { name = "beets" },
+]
 dev = [
     { name = "black" },
     { name = "flake8" },
@@ -125,6 +127,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "beets" },
     { name = "black" },
     { name = "flake8" },
     { name = "isort" },
@@ -135,7 +138,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "beets", specifier = ">=1.6.0" },
+    { name = "beets", marker = "extra == 'beets'", specifier = ">=1.6.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=22.0.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.10.0" },
@@ -148,10 +151,11 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.0.0" },
     { name = "tqdm", specifier = ">=4.60.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["beets", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "beets", specifier = ">=1.6.0" },
     { name = "black", specifier = ">=22.0.0" },
     { name = "flake8", specifier = ">=4.0.0" },
     { name = "isort", specifier = ">=5.10.0" },

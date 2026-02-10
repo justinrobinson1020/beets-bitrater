@@ -29,42 +29,57 @@ uv run <command>
 
 # Examples:
 uv run pytest tests/
-uv run python -c "import beetsplug.bitrater"
-uv run beet bitrater --help
+uv run python -c "import bitrater"
+uv run bitrater --help
 ```
 
 ### Testing
 ```bash
 # Run all tests
-uv run pytest tests/
+uv run python -m pytest tests/
 
 # Run tests with coverage
-uv run pytest tests/ --cov=beetsplug.bitrater
+uv run python -m pytest tests/ --cov=bitrater --cov=beetsplug
 
 # Run specific test file
-uv run pytest tests/test_analyzer.py
-uv run pytest tests/test_classifier.py
-uv run pytest tests/test_spectrum.py
+uv run python -m pytest tests/test_analyzer.py
+uv run python -m pytest tests/test_classifier.py
+uv run python -m pytest tests/test_spectrum.py
 ```
 
 ### Code Quality
 ```bash
 # Format code
-uv run black beetsplug/ tests/
+uv run black bitrater/ beetsplug/ tests/
 
 # Sort imports
-uv run isort beetsplug/ tests/
+uv run isort bitrater/ beetsplug/ tests/
 
 # Lint code
-uv run ruff check beetsplug/ tests/
+uv run ruff check bitrater/ beetsplug/ tests/
 
 # Lint and fix
-uv run ruff check --fix beetsplug/ tests/
+uv run ruff check --fix bitrater/ beetsplug/ tests/
 ```
 
-### Plugin Usage
+### Standalone CLI
 ```bash
 # Analyze audio files
+uv run bitrater analyze <file-or-dir>
+
+# Train classifier
+uv run bitrater train --source-dir <dir> --save-model models/trained_model.pkl
+
+# Validate accuracy
+uv run bitrater validate --source-dir <dir>
+
+# Generate training data
+uv run bitrater transcode --source-dir <dir> --output-dir <dir>
+```
+
+### Beets Plugin Usage
+```bash
+# Analyze audio files via beets
 uv run beet bitrater [query]
 
 # Train classifier with known-good files
@@ -76,15 +91,23 @@ uv run beet bitrater -v [query]
 
 ## Architecture Overview
 
+### Package Structure
+
+The project has two packages:
+- **`bitrater/`** — Standalone core library (no beets dependency). Contains all analysis, classification, and training logic. Provides the `bitrater` CLI.
+- **`beetsplug/bitrater/`** — Thin beets plugin wrapper. Only contains `plugin.py` which imports from `bitrater.*`.
+
 ### Core Components
 
-**Plugin Entry Point** (`beetsplug/bitrater/plugin.py`):
-- `BitraterPlugin`: Main beets plugin class that integrates with beets library
-- Handles CLI commands, configuration, and database field registration
-- Manages parallel processing of audio files
-- Provides auto-analysis during import if enabled
+**Standalone CLI** (`bitrater/cli.py`):
+- `bitrater analyze/train/validate/transcode` subcommands
+- No beets dependency required
 
-**Audio Analysis Pipeline**:
+**Beets Plugin** (`beetsplug/bitrater/plugin.py`):
+- `BitraterPlugin`: Beets integration — imports from `bitrater.*`
+- Handles beets CLI commands, configuration, and database field registration
+
+**Audio Analysis Pipeline** (all in `bitrater/`):
 1. **FileAnalyzer** (`file_analyzer.py`): Extracts metadata from audio files
 2. **SpectrumAnalyzer** (`spectrum.py`): Performs spectral analysis and feature extraction
 3. **QualityClassifier** (`classifier.py`): SVM-based classification of audio quality

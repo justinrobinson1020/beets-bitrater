@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.constants import SPECTRAL_PARAMS
-from beetsplug.bitrater.types import SpectralFeatures
+from bitrater.constants import SPECTRAL_PARAMS
+from bitrater.types import SpectralFeatures
 
 
 @pytest.fixture

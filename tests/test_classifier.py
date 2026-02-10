@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.classifier import QualityClassifier
-from beetsplug.bitrater.constants import BITRATE_CLASSES
+from bitrater.classifier import QualityClassifier
+from bitrater.constants import BITRATE_CLASSES
 
 
 class TestQualityClassifier:

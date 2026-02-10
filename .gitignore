@@ -47,10 +47,11 @@ htmlcov/
 .worktrees/
 
 # Training data (large files, user-provided)
-beetsplug/bitrater/training_data/lossless/
-beetsplug/bitrater/training_data/encoded/
-beetsplug/bitrater/training_data/cache/
-beetsplug/bitrater/training_data/analysis_results/
+training_data/lossless/
+training_data/encoded/
+training_data/cache/
+training_data/analysis_results/
+training_data/logs/
 
 # Log files
 encoding_log_*.txt

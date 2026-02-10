@@ -5,7 +5,7 @@ import pickle
 
 import pytest
 
-from beetsplug.bitrater.classifier import QualityClassifier
+from bitrater.classifier import QualityClassifier
 
 
 class TestModelVersionCheck:

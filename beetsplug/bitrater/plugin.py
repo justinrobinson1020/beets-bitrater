@@ -13,8 +13,8 @@ from beets.ui import Subcommand, UserError, decargs
 from joblib import Parallel, delayed
 from threadpoolctl import threadpool_limits
 
-from .analyzer import AudioQualityAnalyzer
-from .types import AnalysisResult
+from bitrater.analyzer import AudioQualityAnalyzer
+from bitrater.types import AnalysisResult
 
 logger = logging.getLogger("beets.bitrater")
 

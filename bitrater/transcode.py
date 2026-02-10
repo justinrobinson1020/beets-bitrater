@@ -15,7 +15,7 @@ from pathlib import Path
 
 # # Add parent directory to Python path to allow absolute imports
 # sys.path.insert(0, str(Path(__file__).parent.parent))
-from beetsplug.bitrater.constants import CBR_BITRATES, VBR_PRESETS
+from bitrater.constants import CBR_BITRATES, VBR_PRESETS
 
 # Setup logging
 logging.basicConfig(

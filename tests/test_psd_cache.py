@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.spectrum import SpectrumAnalyzer
+from bitrater.spectrum import SpectrumAnalyzer
 
 
 class TestPsdCache:
@@ -19,7 +19,7 @@ class TestPsdCache:
             load_count += 1
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "test.mp3"
         test_file.touch()
@@ -41,7 +41,7 @@ class TestPsdCache:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         file1 = tmp_path / "file1.mp3"
         file1.touch()
@@ -65,7 +65,7 @@ class TestPsdCache:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "test.mp3"
         test_file.touch()

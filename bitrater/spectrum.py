@@ -11,7 +11,7 @@ import librosa
 import numpy as np
 from scipy import signal, stats
 
-from beetsplug.bitrater.training_data.feature_cache import FeatureCache
+from .feature_cache import FeatureCache
 
 from .constants import MINIMUM_DURATION, MINIMUM_SAMPLE_RATE, SPECTRAL_PARAMS
 from .types import SpectralFeatures
@@ -30,10 +30,8 @@ class SpectrumAnalyzer:
 
     @staticmethod
     def _get_default_cache_dir() -> Path:
-        """Get the default cache directory path within the training_data directory."""
-        current_dir = Path(__file__).parent
-        cache_dir = current_dir / "training_data" / "cache"
-        return cache_dir
+        """Get the default cache directory (~/.cache/bitrater/features)."""
+        return Path.home() / ".cache" / "bitrater" / "features"
 
     def __init__(self, cache_dir: Path | None = None):
         """

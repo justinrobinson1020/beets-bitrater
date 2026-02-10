@@ -1,8 +1,8 @@
 """Tests for confidence calculation with penalties."""
 
 
-from beetsplug.bitrater.confidence import ConfidenceCalculator
-from beetsplug.bitrater.constants import CLASS_CUTOFFS, CUTOFF_TOLERANCE
+from bitrater.confidence import ConfidenceCalculator
+from bitrater.constants import CLASS_CUTOFFS, CUTOFF_TOLERANCE
 
 
 class TestConfidenceCalculator:

@@ -2,10 +2,10 @@
 
 import numpy as np
 
-from beetsplug.bitrater.confidence import ConfidenceCalculator
-from beetsplug.bitrater.constants import QUALITY_RANK
-from beetsplug.bitrater.cutoff_detector import CutoffDetector
-from beetsplug.bitrater.transcode_detector import TranscodeDetector
+from bitrater.confidence import ConfidenceCalculator
+from bitrater.constants import QUALITY_RANK
+from bitrater.cutoff_detector import CutoffDetector
+from bitrater.transcode_detector import TranscodeDetector
 
 
 class TestFullPipeline:

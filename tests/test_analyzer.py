@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
-from beetsplug.bitrater.cutoff_detector import CutoffResult
-from beetsplug.bitrater.types import AnalysisResult, ClassifierPrediction, SpectralFeatures
+from bitrater.analyzer import AudioQualityAnalyzer
+from bitrater.cutoff_detector import CutoffResult
+from bitrater.types import AnalysisResult, ClassifierPrediction, SpectralFeatures
 
 
 class TestAudioQualityAnalyzer:
@@ -363,7 +363,7 @@ class TestIntegratedTranscodeDetection:
         """Analyzer should determine stated_class from file format."""
         # This test will need mock spectral data
         # For now, test the helper method
-        from beetsplug.bitrater.analyzer import AudioQualityAnalyzer
+        from bitrater.analyzer import AudioQualityAnalyzer
 
         analyzer = AudioQualityAnalyzer()
 

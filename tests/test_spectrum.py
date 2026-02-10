@@ -4,13 +4,13 @@
 import numpy as np
 import pytest
 
-from beetsplug.bitrater.constants import (
+from bitrater.constants import (
     MINIMUM_DURATION,
     MINIMUM_SAMPLE_RATE,
     SPECTRAL_PARAMS,
 )
-from beetsplug.bitrater.spectrum import SpectrumAnalyzer
-from beetsplug.bitrater.types import SpectralFeatures
+from bitrater.spectrum import SpectrumAnalyzer
+from bitrater.types import SpectralFeatures
 
 
 class TestSpectrumAnalyzer:
@@ -122,7 +122,7 @@ class TestSpectrumAnalyzerIsVbr:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100  # 1 second at 44.1kHz
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         # Create a dummy file
         test_file = tmp_path / "test.mp3"
@@ -141,7 +141,7 @@ class TestSpectrumAnalyzerIsVbr:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "test.mp3"
         test_file.touch()
@@ -159,7 +159,7 @@ class TestSpectrumAnalyzerIsVbr:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "cbr_192.mp3"
         test_file.touch()
@@ -176,7 +176,7 @@ class TestSpectrumAnalyzerIsVbr:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "vbr_v0.mp3"
         test_file.touch()
@@ -321,7 +321,7 @@ class TestExtractRolloffFeatures:
         def mock_load(file_path, sr=None, mono=True):
             return np.random.rand(44100), 44100
 
-        monkeypatch.setattr("beetsplug.bitrater.spectrum.librosa.load", mock_load)
+        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
 
         test_file = tmp_path / "test.mp3"
         test_file.touch()
