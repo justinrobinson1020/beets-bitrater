@@ -139,8 +139,10 @@ class AudioEncoder:
         progress.start_file()
 
         try:
-            # Create temporary WAV path
-            temp_wav = source_file.parent / f"temp_{source_file.stem}.wav"
+            # Create temporary WAV in output dir (avoids writes to slow source disk)
+            temp_dir = self.output_dir / ".tmp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_wav = temp_dir / f"temp_{source_file.stem}.wav"
             sanitized_name = self._sanitize_filename(source_file.stem)
 
             # Check if all outputs exist
@@ -228,6 +230,7 @@ class AudioEncoder:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             cmd = [
                 self.executables["lame"],
+                "--silent",
                 "--cbr",
                 "-b",
                 str(bitrate),
@@ -251,6 +254,7 @@ class AudioEncoder:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             cmd = [
                 self.executables["lame"],
+                "--silent",
                 "-V",
                 str(preset),
                 "--vbr-new",
@@ -473,6 +477,7 @@ class AudioEncoder:
         try:
             cmd = [
                 self.executables["ffmpeg"],
+                "-loglevel", "error",
                 "-i", str(mp3_file),
                 "-c:a", "flac",
                 "-compression_level", "8",  # High compression
@@ -649,16 +654,17 @@ Examples:
         if not source_dir.exists() and not args.uptranscode_only:
             raise ValueError(f"Source directory '{source_dir}' does not exist")
 
-        # Clean up any leftover temporary files
-        if source_dir.exists():
-            temp_files = list(source_dir.glob("temp_*.wav"))
-            if temp_files:
-                logger.info(f"Cleaning up {len(temp_files)} temporary files...")
-                for temp_file in temp_files:
-                    try:
-                        temp_file.unlink()
-                    except Exception as e:
-                        logger.error(f"Error deleting {temp_file}: {e}")
+        # Clean up any leftover temporary files (check both old and new locations)
+        for temp_parent in [source_dir, output_dir / ".tmp"]:
+            if temp_parent.exists():
+                temp_files = list(temp_parent.glob("temp_*.wav"))
+                if temp_files:
+                    logger.info(f"Cleaning up {len(temp_files)} temporary files in {temp_parent}...")
+                    for temp_file in temp_files:
+                        try:
+                            temp_file.unlink()
+                        except Exception as e:
+                            logger.error(f"Error deleting {temp_file}: {e}")
 
         # Initialize encoder
         encoder = AudioEncoder(source_dir, output_dir)

@@ -56,3 +56,6 @@ training_data/logs/
 # Log files
 encoding_log_*.txt
 *.log
+
+# VS Code workspace
+*.code-workspace
