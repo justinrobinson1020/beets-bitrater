@@ -1,6 +1,7 @@
 """Tests for the bitrater CLI module."""
 
 import argparse
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,8 +21,6 @@ class TestSetupLogging:
 
     @patch("bitrater.cli.logging.basicConfig")
     def test_default_level_is_info(self, mock_basic_config):
-        import logging
-
         _setup_logging(verbose=False)
         mock_basic_config.assert_called_once_with(
             level=logging.INFO,
@@ -30,8 +29,6 @@ class TestSetupLogging:
 
     @patch("bitrater.cli.logging.basicConfig")
     def test_verbose_sets_debug(self, mock_basic_config):
-        import logging
-
         _setup_logging(verbose=True)
         mock_basic_config.assert_called_once_with(
             level=logging.DEBUG,
