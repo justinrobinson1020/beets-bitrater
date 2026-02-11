@@ -55,38 +55,28 @@ class AudioEncoder:
         executables = {
             "lame": shutil.which("lame"),
             "flac": shutil.which("flac"),
-            "ffmpeg": shutil.which("ffmpeg"),
         }
 
         missing = [name for name, path in executables.items() if not path]
         if missing:
             raise RuntimeError(
                 f"Required executables not found: {', '.join(missing)}. "
-                "Please install LAME, FLAC, and FFmpeg."
+                "Please install LAME and FLAC."
             )
 
         return executables
 
-    def process_files(self, max_workers: int | None = None, include_uptranscoding: bool = True) -> None:
+    def process_files(self, max_workers: int | None = None) -> None:
         """
-        Process all audio files in source directory with optional uptranscoding.
+        Process all audio files in source directory.
 
         Args:
             max_workers: Maximum number of worker threads (None = CPU count - 1)
-            include_uptranscoding: Whether to create uptranscoded files after MP3 encoding
         """
         # Check if migration is needed
         self.check_migration_needed()
 
-        # Stage 1: Create MP3 files
         self._create_mp3_files(max_workers)
-
-        # Stage 2: Create uptranscoded FLAC files from MP3s
-        if include_uptranscoding:
-            logger.info("\n" + "="*50)
-            logger.info("STAGE 2: Creating uptranscoded FLAC files")
-            logger.info("="*50)
-            self.create_uptranscoded_files(max_workers)
 
     def _create_mp3_files(self, max_workers: int | None = None) -> None:
         """Create MP3 files from source FLAC/WAV files (Stage 1).
@@ -446,152 +436,6 @@ class AudioEncoder:
 
         return False
 
-    def create_uptranscoded_files(self, max_workers: int | None = None) -> None:
-        """
-        Create uptranscoded FLAC files from MP3 files.
-
-        This creates MP3→FLAC conversions for training the uptranscode detector.
-
-        Args:
-            max_workers: Maximum number of worker threads (None = CPU count - 1)
-        """
-        if max_workers is None:
-            max_workers = max(1, os.cpu_count() - 1)
-
-        # Find all MP3 files in lossy/ subdirectory
-        mp3_files = self._collect_mp3_files()
-        if not mp3_files:
-            logger.warning("No MP3 files found for uptranscoding. Run regular encoding first.")
-            return
-
-        total_files = len(mp3_files)
-        logger.info("Starting uptranscode generation:")
-        logger.info(f"├── Found {total_files} MP3 files")
-        logger.info(f"└── Using {max_workers} worker threads")
-
-        progress = ProgressTracker(total_files, 1, phase_name="Uptranscode")
-
-        try:
-            # Process in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(self._uptranscode_file, mp3_file, progress)
-                          for mp3_file in mp3_files]
-
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Uptranscode task failed: {str(e)}")
-
-        except KeyboardInterrupt:
-            logger.warning("\nUptranscode process interrupted by user")
-            raise
-
-        finally:
-            progress.finish()
-
-    def _collect_mp3_files(self) -> list[Path]:
-        """Collect all MP3 files from both old and new directory structures."""
-        mp3_files = []
-
-        # Check new lossy/ subdirectory first
-        lossy_dir = self.output_dir / "lossy"
-        old_format_dirs = []
-
-        # Collect from new directory structure
-        if lossy_dir.exists():
-            for bitrate in CBR_BITRATES:
-                bitrate_dir = lossy_dir / str(bitrate)
-                if bitrate_dir.exists():
-                    mp3_files.extend(bitrate_dir.glob("*.mp3"))
-
-            for preset in VBR_PRESETS:
-                preset_dir = lossy_dir / f"v{preset}"
-                if preset_dir.exists():
-                    mp3_files.extend(preset_dir.glob("*.mp3"))
-
-        # Also check old directory structure for files that haven't been migrated yet
-        for bitrate in CBR_BITRATES:
-            old_dir = self.output_dir / str(bitrate)
-            if old_dir.exists():
-                old_files = list(old_dir.glob("*.mp3"))
-                if old_files:
-                    logger.warning(f"Found {len(old_files)} files in old location: {old_dir}")
-                    logger.warning("Consider running migration: python transcode.py --migrate")
-                    mp3_files.extend(old_files)
-                    old_format_dirs.append(str(old_dir))
-
-        for preset in VBR_PRESETS:
-            old_dir = self.output_dir / f"v{preset}"
-            if old_dir.exists():
-                old_files = list(old_dir.glob("*.mp3"))
-                if old_files:
-                    logger.warning(f"Found {len(old_files)} files in old location: {old_dir}")
-                    if str(old_dir) not in old_format_dirs:  # Avoid duplicate warning
-                        logger.warning("Consider running migration: python transcode.py --migrate")
-                    mp3_files.extend(old_files)
-
-        if old_format_dirs:
-            logger.info("Collected MP3 files from both old and new directory structures")
-
-        return mp3_files
-
-    def _uptranscode_file(self, mp3_file: Path, progress: "ProgressTracker") -> None:
-        """Uptranscode a single MP3 file to FLAC."""
-        # Determine source format from path
-        parent_name = mp3_file.parent.name
-        if parent_name.startswith('v'):
-            source_format = f"from_{parent_name}"
-        else:
-            source_format = f"from_{parent_name}"
-
-        # Create output path
-        uptranscode_dir = self.output_dir / "uptranscoded" / source_format
-        uptranscode_dir.mkdir(parents=True, exist_ok=True)
-
-        output_file = uptranscode_dir / f"{mp3_file.stem}.flac"
-
-        # Skip if already exists
-        if output_file.exists():
-            logger.debug(f"Skipping existing uptranscode: {output_file.name}")
-            return
-
-        # Convert MP3 to FLAC using FFmpeg
-        try:
-            cmd = [
-                self.executables["ffmpeg"],
-                "-loglevel", "error",
-                "-i", str(mp3_file),
-                "-c:a", "flac",
-                "-compression_level", "8",  # High compression
-                "-y",  # Overwrite output files
-                str(output_file)
-            ]
-
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            logger.debug(f"Uptranscoded: {mp3_file.name} → {output_file.name}")
-            progress.update_file_progress(1, 1, mp3_file.name)
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to uptranscode {mp3_file.name}: {e.stderr}")
-            # Clean up partial file
-            if output_file.exists():
-                output_file.unlink()
-            raise
-
-        except Exception as e:
-            logger.error(f"Error uptranscoding {mp3_file.name}: {str(e)}")
-            if output_file.exists():
-                output_file.unlink()
-            raise
-
-
 class ProgressTracker:
     """Track progress and timing of the encoding process."""
 
@@ -629,27 +473,6 @@ class ProgressTracker:
             f"ETA: {timedelta(seconds=int(eta))}"
         )
 
-    def update_file_progress(
-        self, completed_tasks: int, total_file_tasks: int, filename: str
-    ) -> None:
-        """Update progress for current file (used by uptranscode phase)."""
-        self.completed_tasks += completed_tasks
-        elapsed = time.time() - self.start_time
-        overall_pct = (
-            (self.completed_tasks / self.total_tasks * 100)
-            if self.total_tasks
-            else 0
-        )
-        tasks_per_sec = self.completed_tasks / elapsed if elapsed > 0 else 0
-        remaining = self.total_tasks - self.completed_tasks
-        eta = remaining / tasks_per_sec if tasks_per_sec > 0 else 0
-
-        logger.info(
-            f"Uptranscoded {filename} | "
-            f"{self.completed_tasks}/{self.total_tasks} ({overall_pct:.0f}%) | "
-            f"ETA: {timedelta(seconds=int(eta))}"
-        )
-
     def finish(self) -> None:
         """Log final statistics."""
         total_time = time.time() - self.start_time
@@ -681,14 +504,8 @@ Examples:
   # Preview migration (dry run)
   python transcode.py --migrate --dry-run
 
-  # Create MP3 files only (Stage 1)
-  python transcode.py --no-uptranscode
-
-  # Create MP3 files and uptranscoded FLAC files (both stages)
+  # Create MP3 training data
   python transcode.py
-
-  # Create only uptranscoded files (assuming MP3s already exist)
-  python transcode.py --uptranscode-only
         """
     )
 
@@ -702,18 +519,6 @@ Examples:
         "--dry-run",
         action="store_true",
         help="With --migrate, show what would be moved without actually moving files"
-    )
-
-    parser.add_argument(
-        "--no-uptranscode",
-        action="store_true",
-        help="Skip uptranscode generation (MP3→FLAC conversion)"
-    )
-
-    parser.add_argument(
-        "--uptranscode-only",
-        action="store_true",
-        help="Only create uptranscoded files (skip MP3 generation)"
     )
 
     parser.add_argument(
@@ -747,7 +552,7 @@ Examples:
         source_dir = Path("lossless")
         output_dir = Path("encoded")
 
-        if not source_dir.exists() and not args.uptranscode_only:
+        if not source_dir.exists():
             raise ValueError(f"Source directory '{source_dir}' does not exist")
 
         # Clean up any leftover temporary files (check both old and new locations)
@@ -768,14 +573,7 @@ Examples:
         # Determine number of workers
         max_workers = args.workers if args.workers else max(1, os.cpu_count() - 1)
 
-        # Execute based on options
-        if args.uptranscode_only:
-            logger.info("Running uptranscode-only mode")
-            encoder.create_uptranscoded_files(max_workers)
-        else:
-            # Default mode: create MP3s and optionally uptranscoded files
-            include_uptranscoding = not args.no_uptranscode
-            encoder.process_files(max_workers, include_uptranscoding)
+        encoder.process_files(max_workers)
 
     except KeyboardInterrupt:
         logger.warning("\nEncoding process interrupted by user")

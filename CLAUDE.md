@@ -141,7 +141,7 @@ The project has two packages:
 **Transcoding** (`bitrater/transcode.py`):
 - Generates training data by encoding FLACs to MP3 at all bitrate classes
 - Skips already-processed files (safe to interrupt and resume)
-- Two stages: MP3 encoding + uptranscoded FLAC generation
+- Creates lossless symlinks to source files for training
 
 ### Key Features
 
@@ -190,10 +190,7 @@ Training data is organized as:
 │   ├── v0/           # V0 VBR preset
 │   ├── v2/           # V2 VBR preset
 │   └── v4/           # V4 VBR preset
-└── uptranscoded/
-    ├── from_128/     # 128->FLAC uptranscodes
-    ├── from_v2/      # V2->FLAC uptranscodes
-    └── ...
+└── lossless/          # Symlinks to source FLACs
 ```
 
 ### Configuration Options
