@@ -2,8 +2,7 @@
 
 import logging
 import pickle
-
-import pytest
+from contextlib import contextmanager
 
 from bitrater.classifier import QualityClassifier
 
@@ -18,9 +17,7 @@ class TestModelVersionCheck:
         classifier.train(features_list, labels, save_path=temp_model_path)
         return classifier
 
-    def test_load_model_warns_on_version_mismatch(
-        self, training_features, temp_model_path
-    ):
+    def test_load_model_warns_on_version_mismatch(self, training_features, temp_model_path):
         """load_model should log warning when model version doesn't match '3.0'."""
         self._train_and_save(training_features, temp_model_path)
 
@@ -37,13 +34,11 @@ class TestModelVersionCheck:
         with _capture_handler(logger) as handler:
             classifier2.load_model(temp_model_path)
 
-        assert any("version" in r.message.lower() for r in handler.records), (
-            "Expected a warning about model version mismatch"
-        )
+        assert any(
+            "version" in r.message.lower() for r in handler.records
+        ), "Expected a warning about model version mismatch"
 
-    def test_load_model_no_warning_on_matching_version(
-        self, training_features, temp_model_path
-    ):
+    def test_load_model_no_warning_on_matching_version(self, training_features, temp_model_path):
         """load_model should not warn when version matches '3.0'."""
         self._train_and_save(training_features, temp_model_path)
 
@@ -53,14 +48,10 @@ class TestModelVersionCheck:
             classifier2.load_model(temp_model_path)
 
         assert not any(
-            "version" in r.message.lower()
-            for r in handler.records
-            if r.levelno >= logging.WARNING
+            "version" in r.message.lower() for r in handler.records if r.levelno >= logging.WARNING
         ), "Should not warn when version matches"
 
-    def test_load_model_warns_on_missing_version(
-        self, training_features, temp_model_path
-    ):
+    def test_load_model_warns_on_missing_version(self, training_features, temp_model_path):
         """load_model should log warning when version key is absent."""
         self._train_and_save(training_features, temp_model_path)
 
@@ -76,13 +67,11 @@ class TestModelVersionCheck:
         with _capture_handler(logger) as handler:
             classifier2.load_model(temp_model_path)
 
-        assert any("version" in r.message.lower() for r in handler.records), (
-            "Expected a warning about missing model version"
-        )
+        assert any(
+            "version" in r.message.lower() for r in handler.records
+        ), "Expected a warning about missing model version"
 
-    def test_load_model_logs_feature_count(
-        self, training_features, temp_model_path
-    ):
+    def test_load_model_logs_feature_count(self, training_features, temp_model_path):
         """load_model should log the feature count from scaler."""
         self._train_and_save(training_features, temp_model_path)
 
@@ -91,9 +80,9 @@ class TestModelVersionCheck:
         with _capture_handler(logger) as handler:
             classifier2.load_model(temp_model_path)
 
-        assert any("feature" in r.message.lower() for r in handler.records), (
-            "Expected log message about feature count"
-        )
+        assert any(
+            "feature" in r.message.lower() for r in handler.records
+        ), "Expected log message about feature count"
 
 
 class _CaptureHandler(logging.Handler):
@@ -106,8 +95,6 @@ class _CaptureHandler(logging.Handler):
     def emit(self, record):
         self.records.append(record)
 
-
-from contextlib import contextmanager
 
 
 @contextmanager

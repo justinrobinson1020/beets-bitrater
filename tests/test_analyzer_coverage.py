@@ -1,5 +1,7 @@
 """Additional tests for analyzer.py to improve coverage."""
 
+import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -7,7 +9,7 @@ import numpy as np
 import pytest
 
 from bitrater.analyzer import AudioQualityAnalyzer, _extract_features_worker
-from bitrater.types import AnalysisResult, FileMetadata, SpectralFeatures
+from bitrater.types import FileMetadata, SpectralFeatures
 
 
 class TestGetStatedClass:
@@ -82,7 +84,10 @@ class TestAnalyzeFileWithTrainedModel:
         mock_features = MagicMock(spec=SpectralFeatures)
         analyzer.spectrum_analyzer = MagicMock()
         analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
-        analyzer.spectrum_analyzer.get_psd.return_value = (np.zeros(100), np.linspace(0, 22050, 100))
+        analyzer.spectrum_analyzer.get_psd.return_value = (
+            np.zeros(100),
+            np.linspace(0, 22050, 100),
+        )
 
         analyzer.classifier = MagicMock()
         analyzer.classifier.trained = True
@@ -111,8 +116,6 @@ class TestAnalyzeFileWithTrainedModel:
             transcoded_from=None,
         )
 
-        # Create a temp file
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -156,7 +159,6 @@ class TestAnalyzeFileWithTrainedModel:
 
         analyzer.cutoff_detector = MagicMock()
 
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -199,7 +201,6 @@ class TestAnalyzeFileWithTrainedModel:
 
         analyzer.cutoff_detector = MagicMock()
 
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -241,7 +242,6 @@ class TestAnalyzeFileWithTrainedModel:
 
         analyzer.cutoff_detector = MagicMock()
 
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -260,7 +260,6 @@ class TestAnalyzeFileWithTrainedModel:
 
         analyzer.classifier = MagicMock()
 
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -310,7 +309,6 @@ class TestAnalyzeFileWithTrainedModel:
 
         analyzer.cutoff_detector = MagicMock()
 
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             result = analyzer.analyze_file(f.name)
 
@@ -392,7 +390,6 @@ class TestTrainSequential:
 
         # Create fake training data with enough samples
         training_data = {}
-        import tempfile, os
         files = []
         for i in range(14):  # 2 per class
             f = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
@@ -431,7 +428,9 @@ class TestTrainFromDirectory:
         (d / "test.mp3").touch()
 
         analyzer = AudioQualityAnalyzer()
-        analyzer.train_parallel = MagicMock(return_value={"total_files": 1, "successful": 1, "failed": 0})
+        analyzer.train_parallel = MagicMock(
+            return_value={"total_files": 1, "successful": 1, "failed": 0}
+        )
 
         analyzer.train_from_directory(tmp_path)
         analyzer.train_parallel.assert_called_once()
@@ -446,6 +445,257 @@ class TestTrainFromDirectory:
 
         analyzer.train_from_directory(tmp_path, use_parallel=False)
         analyzer.train.assert_called_once()
+
+
+class TestAnalyzeFileWarningLogic:
+    """Tests for analyze_file's warning generation logic.
+
+    Uses real ConfidenceCalculator, TranscodeDetector, and CutoffDetector
+    instances. Only mocks I/O-bound components (file_analyzer, spectrum_analyzer,
+    classifier) to verify that the orchestration logic in analyze_file correctly
+    generates warnings based on real component decisions.
+    """
+
+    def _make_analyzer(self):
+        """Create an analyzer with real decision components, mocked I/O."""
+        from bitrater.confidence import ConfidenceCalculator
+        from bitrater.cutoff_detector import CutoffDetector
+        from bitrater.transcode_detector import TranscodeDetector
+
+        analyzer = object.__new__(AudioQualityAnalyzer)
+        analyzer.file_analyzer = MagicMock()
+        analyzer.spectrum_analyzer = MagicMock()
+        analyzer.classifier = MagicMock()
+        analyzer.classifier.trained = True
+
+        # Real decision components
+        analyzer.cutoff_detector = CutoffDetector()
+        analyzer.confidence_calculator = ConfidenceCalculator()
+        analyzer.transcode_detector = TranscodeDetector()
+        return analyzer
+
+    def test_low_confidence_generates_warning(self, tmp_path):
+        """Confidence below LOW_CONFIDENCE_THRESHOLD (0.7) should produce a warning."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="mp3",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="CBR",
+            encoder="LAME",
+            bitrate=320,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        # Classifier returns low confidence
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="320",
+            estimated_bitrate=320,
+            confidence=0.3,
+        )
+        # No PSD data → neutral gradient (0.5)
+        analyzer.spectrum_analyzer.get_psd.return_value = None
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert result.confidence < 0.7
+        assert any("Low confidence" in w for w in result.warnings)
+
+    def test_transcode_detection_generates_warning(self, tmp_path):
+        """File claiming 320 but detected as 128 should produce transcode warning."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="mp3",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="CBR",
+            encoder="LAME",
+            bitrate=320,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        # Classifier says 128 but file claims 320
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="128",
+            estimated_bitrate=128,
+            confidence=0.95,
+        )
+        analyzer.spectrum_analyzer.get_psd.return_value = None
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert result.is_transcode is True
+        assert result.transcoded_from == "128"
+        assert result.quality_gap > 0
+        assert any("transcoded from 128" in w for w in result.warnings)
+
+    def test_bitrate_mismatch_generates_upsampled_warning(self, tmp_path):
+        """Stated bitrate > detected * 1.5 should produce upsampled warning."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        # File metadata claims 320 kbps
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="mp3",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="CBR",
+            encoder="LAME",
+            bitrate=320,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        # Classifier detects 192 (320 > 192 * 1.5 = 288, so mismatch triggers)
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="192",
+            estimated_bitrate=192,
+            confidence=0.95,
+        )
+        analyzer.spectrum_analyzer.get_psd.return_value = None
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert any("upsampled" in w.lower() for w in result.warnings)
+
+    def test_no_bitrate_mismatch_when_within_factor(self, tmp_path):
+        """Stated bitrate close to detected should NOT produce upsampled warning."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        # File metadata claims 320 kbps
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="mp3",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="CBR",
+            encoder="LAME",
+            bitrate=320,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        # Classifier also detects 320 (no mismatch)
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="320",
+            estimated_bitrate=320,
+            confidence=0.95,
+        )
+        analyzer.spectrum_analyzer.get_psd.return_value = None
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert not any("upsampled" in w.lower() for w in result.warnings)
+
+    def test_lossless_detected_skips_bitrate_mismatch(self, tmp_path):
+        """Lossless detection should not trigger bitrate mismatch warning."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.flac"
+        audio_file.touch()
+
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="flac",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="lossless",
+            encoder="Unknown",
+            bitrate=None,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="LOSSLESS",
+            estimated_bitrate=1411,
+            confidence=0.95,
+        )
+        analyzer.spectrum_analyzer.get_psd.return_value = None
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert not any("upsampled" in w.lower() for w in result.warnings)
+
+    def test_untrained_classifier_returns_unknown(self, tmp_path):
+        """Untrained classifier should return UNKNOWN with warning."""
+        analyzer = self._make_analyzer()
+        analyzer.classifier.trained = False
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        analyzer.file_analyzer.analyze.return_value = None
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert result.original_format == "UNKNOWN"
+        assert result.confidence == 0.0
+        assert "Classifier not trained" in result.warnings
+
+    def test_cutoff_with_psd_data_applies_penalties(self, tmp_path):
+        """When PSD data is available, cutoff detection should influence confidence."""
+        analyzer = self._make_analyzer()
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.touch()
+
+        analyzer.file_analyzer.analyze.return_value = FileMetadata(
+            format="mp3",
+            sample_rate=44100,
+            duration=180.0,
+            channels=2,
+            encoding_type="CBR",
+            encoder="LAME",
+            bitrate=320,
+        )
+        mock_features = MagicMock(spec=SpectralFeatures)
+        analyzer.spectrum_analyzer.analyze_file.return_value = mock_features
+
+        analyzer.classifier.predict.return_value = MagicMock(
+            format_type="320",
+            estimated_bitrate=320,
+            confidence=0.95,
+        )
+
+        # Provide real PSD data with content dropping off around 20kHz
+        freqs = np.linspace(0, 22050, 4097)
+        psd = np.ones(4097) * 1e-3
+        psd[freqs < 20000] = 1.0  # Content below 20kHz
+        analyzer.spectrum_analyzer.get_psd.return_value = (psd, freqs)
+
+        result = analyzer.analyze_file(str(audio_file))
+
+        assert result is not None
+        assert result.detected_cutoff > 0
+        # Confidence should reflect cutoff detection (may have penalties)
+        assert 0.0 < result.confidence <= 1.0
 
 
 class TestExtractFeaturesWorkerErrors:

@@ -62,24 +62,16 @@ class BitraterPlugin(BeetsPlugin):
 
     def commands(self) -> list[Subcommand]:
         """Create plugin commands."""
-        analyze_cmd = Subcommand(
-            "bitrater", help="Analyze audio files to detect original bitrate"
-        )
+        analyze_cmd = Subcommand("bitrater", help="Analyze audio files to detect original bitrate")
         analyze_cmd.parser.add_option(
             "-v", "--verbose", action="store_true", help="show detailed analysis results"
         )
         analyze_cmd.parser.add_option(
             "-t", "--train", action="store_true", help="train classifier with known-good files"
         )
-        analyze_cmd.parser.add_option(
-            "--threads", type="int", help="number of analysis threads"
-        )
-        analyze_cmd.parser.add_option(
-            "--save-model", help="save trained model to specified path"
-        )
-        analyze_cmd.parser.add_option(
-            "--training-dir", help="path to training data directory"
-        )
+        analyze_cmd.parser.add_option("--threads", type="int", help="number of analysis threads")
+        analyze_cmd.parser.add_option("--save-model", help="save trained model to specified path")
+        analyze_cmd.parser.add_option("--training-dir", help="path to training data directory")
         analyze_cmd.parser.add_option(
             "--validate",
             action="store_true",
@@ -255,9 +247,7 @@ class BitraterPlugin(BeetsPlugin):
             else:
                 # Normal training mode: use all data
                 logger.info(f"Training classifier from {training_dir}...")
-                stats = self.analyzer.train_from_directory(
-                    training_dir, num_workers=train_workers
-                )
+                stats = self.analyzer.train_from_directory(training_dir, num_workers=train_workers)
 
                 logger.info(
                     f"Training complete: {stats['successful']}/{stats['total_files']} files processed"
@@ -295,7 +285,9 @@ class BitraterPlugin(BeetsPlugin):
         # Per-class metrics
         logger.info("\nPer-Class Results:")
         logger.info("-" * 60)
-        logger.info(f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
+        logger.info(
+            f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}"
+        )
         logger.info("-" * 60)
 
         for class_name, class_metrics in metrics["per_class"].items():
@@ -330,9 +322,9 @@ class BitraterPlugin(BeetsPlugin):
         logger.info("\nComparison with D'Alessandro & Shi (2009):")
         logger.info("  Paper accuracy: 97%")
         logger.info(f"  Our accuracy:   {metrics['accuracy']:.1%}")
-        if metrics['accuracy'] >= 0.95:
+        if metrics["accuracy"] >= 0.95:
             logger.info("  [OK] Matches or exceeds paper's results")
-        elif metrics['accuracy'] >= 0.90:
+        elif metrics["accuracy"] >= 0.90:
             logger.info("  [WARN] Slightly below paper's results (acceptable)")
         else:
             logger.info("  [FAIL] Below expected accuracy - investigate")

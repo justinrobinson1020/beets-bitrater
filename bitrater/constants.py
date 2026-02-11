@@ -13,12 +13,12 @@ VBR_RANGES = {
 
 # Classification classes (7 classes)
 BITRATE_CLASSES = {
-    0: ("128", 128),      # CBR 128 kbps - cutoff ~16 kHz
-    1: ("V2", 190),       # VBR-2 (avg ~190 kbps) - cutoff ~18.5 kHz
-    2: ("192", 192),      # CBR 192 kbps - cutoff ~19 kHz
-    3: ("V0", 245),       # VBR-0 (avg ~245 kbps) - cutoff ~19.5 kHz
-    4: ("256", 256),      # CBR 256 kbps - cutoff ~20 kHz
-    5: ("320", 320),      # CBR 320 kbps - cutoff ~20.5 kHz
+    0: ("128", 128),  # CBR 128 kbps - cutoff ~16 kHz
+    1: ("V2", 190),  # VBR-2 (avg ~190 kbps) - cutoff ~18.5 kHz
+    2: ("192", 192),  # CBR 192 kbps - cutoff ~19 kHz
+    3: ("V0", 245),  # VBR-0 (avg ~245 kbps) - cutoff ~19.5 kHz
+    4: ("256", 256),  # CBR 256 kbps - cutoff ~20 kHz
+    5: ("320", 320),  # CBR 320 kbps - cutoff ~20.5 kHz
     6: ("LOSSLESS", 1411),  # Lossless (CD quality) - cutoff >21.5 kHz
 }
 
@@ -50,19 +50,19 @@ GRADIENT_NORMALIZATION_DB = 30.0  # dB drop that corresponds to gradient=1.0
 
 # Spectral analysis parameters - extended for lossless detection
 SPECTRAL_PARAMS = {
-    "min_freq": 16000,   # Paper's starting frequency (Hz)
-    "max_freq": 22050,   # Extended to Nyquist for lossless detection (Hz)
-    "num_bands": 150,    # 100 (paper) + 50 (ultrasonic extension)
-    "fft_size": 8192,    # FFT window size
+    "min_freq": 16000,  # Paper's starting frequency (Hz)
+    "max_freq": 22050,  # Extended to Nyquist for lossless detection (Hz)
+    "num_bands": 150,  # 100 (paper) + 50 (ultrasonic extension)
+    "fft_size": 8192,  # FFT window size
 }
 
 # SVM parameters from D'Alessandro & Shi paper (97% accuracy)
 CLASSIFIER_PARAMS = {
     "kernel": "poly",
-    "degree": 2,       # d=2 from paper - CRITICAL
-    "gamma": 1,        # γ=1 from paper
-    "C": 1,            # C=1 from paper
-    "coef0": 1,        # Standard for polynomial kernel
+    "degree": 2,  # d=2 from paper - CRITICAL
+    "gamma": 1,  # γ=1 from paper
+    "C": 1,  # C=1 from paper
+    "coef0": 1,  # Standard for polynomial kernel
     "probability": True,  # For confidence scores
     "cache_size": 1000,
     "class_weight": "balanced",

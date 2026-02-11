@@ -30,8 +30,7 @@ def sample_features() -> SpectralFeatures:
     band_width = (max_freq - min_freq) / num_bands
 
     frequency_bands = [
-        (min_freq + i * band_width, min_freq + (i + 1) * band_width)
-        for i in range(num_bands)
+        (min_freq + i * band_width, min_freq + (i + 1) * band_width) for i in range(num_bands)
     ]
 
     # Realistic 320kbps SFB21 values: moderate ultra ratio, good continuity
@@ -64,8 +63,7 @@ def lossless_features() -> SpectralFeatures:
     band_width = (max_freq - min_freq) / num_bands
 
     frequency_bands = [
-        (min_freq + i * band_width, min_freq + (i + 1) * band_width)
-        for i in range(num_bands)
+        (min_freq + i * band_width, min_freq + (i + 1) * band_width) for i in range(num_bands)
     ]
 
     # Realistic lossless SFB21 values: high ultra ratio, strong continuity
@@ -94,7 +92,7 @@ def temp_model_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def training_features() -> tuple[list, list]:
     """Create a set of training features for different classes.
-    
+
     Classes (by index):
     - 0: 128 kbps - sharp cutoff early
     - 1: V2 - cutoff at ~18.5 kHz
@@ -105,9 +103,10 @@ def training_features() -> tuple[list, list]:
     - 6: Lossless - full spectrum
     """
     from enum import IntEnum
-    
+
     class TrainingClass(IntEnum):
         """Class indices for training data."""
+
         CBR_128 = 0
         VBR_V2 = 1
         CBR_192 = 2
@@ -115,7 +114,7 @@ def training_features() -> tuple[list, list]:
         CBR_256 = 4
         CBR_320 = 5
         LOSSLESS = 6
-    
+
     rng = np.random.default_rng(42)
     num_bands = SPECTRAL_PARAMS["num_bands"]
     features_list = []
@@ -188,16 +187,18 @@ def training_features() -> tuple[list, list]:
             else:  # LOSSLESS
                 rolloff = np.array([-0.2, -3.0, 0.90, 0.80], dtype=np.float32) + noise_r
 
-            features_list.append(SpectralFeatures(
-                features=features,
-                frequency_bands=frequency_bands,
-                cutoff_features=np.zeros(6, dtype=np.float32),
-                temporal_features=np.zeros(8, dtype=np.float32),
-                artifact_features=np.zeros(6, dtype=np.float32),
-                sfb21_features=sfb21,
-                rolloff_features=rolloff,
-                is_vbr=is_vbr,
-            ))
+            features_list.append(
+                SpectralFeatures(
+                    features=features,
+                    frequency_bands=frequency_bands,
+                    cutoff_features=np.zeros(6, dtype=np.float32),
+                    temporal_features=np.zeros(8, dtype=np.float32),
+                    artifact_features=np.zeros(6, dtype=np.float32),
+                    sfb21_features=sfb21,
+                    rolloff_features=rolloff,
+                    is_vbr=is_vbr,
+                )
+            )
             labels.append(int(class_idx))
 
     return features_list, labels

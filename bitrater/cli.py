@@ -72,13 +72,9 @@ def cmd_train(args: argparse.Namespace) -> None:
     save_path = Path(args.save_model) if args.save_model else None
 
     logger.info(f"Training from {source_dir}...")
-    stats = analyzer.train_from_directory(
-        source_dir, save_path=save_path, num_workers=args.threads
-    )
+    stats = analyzer.train_from_directory(source_dir, save_path=save_path, num_workers=args.threads)
 
-    logger.info(
-        f"Training complete: {stats['successful']}/{stats['total_files']} files processed"
-    )
+    logger.info(f"Training complete: {stats['successful']}/{stats['total_files']} files processed")
     if save_path:
         logger.info(f"Model saved to {save_path}")
 
@@ -132,9 +128,7 @@ def main() -> None:
         prog="bitrater",
         description="Audio quality analysis and bitrate detection",
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="verbose output"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="verbose output")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # analyze
@@ -144,9 +138,7 @@ def main() -> None:
 
     # train
     p_train = subparsers.add_parser("train", help="train classifier")
-    p_train.add_argument(
-        "--source-dir", required=True, help="directory with labeled training data"
-    )
+    p_train.add_argument("--source-dir", required=True, help="directory with labeled training data")
     p_train.add_argument("--save-model", help="path to save trained model")
     p_train.add_argument("--threads", type=int, default=None, help="number of workers")
 
@@ -167,9 +159,7 @@ def main() -> None:
     p_transcode.add_argument(
         "--source-dir", required=True, help="directory with source FLAC/WAV files"
     )
-    p_transcode.add_argument(
-        "--output-dir", required=True, help="directory for encoded output"
-    )
+    p_transcode.add_argument("--output-dir", required=True, help="directory for encoded output")
     p_transcode.add_argument("--workers", type=int, default=None, help="number of workers")
 
     args = parser.parse_args()

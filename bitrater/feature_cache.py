@@ -17,6 +17,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
 class FeatureCache:
     """Thread-safe manager for caching of extracted spectral features."""
 
@@ -35,7 +36,7 @@ class FeatureCache:
         self.worker_running = True
 
         # Cached lock file handle for metadata (avoids open/close per operation)
-        self._metadata_lock_path = self.metadata_path.with_suffix('.lock')
+        self._metadata_lock_path = self.metadata_path.with_suffix(".lock")
         self._metadata_lock_file: Any = None
 
         # Create cache directories
@@ -63,7 +64,7 @@ class FeatureCache:
         # Use cached handle for metadata lock path (most common case)
         if lock_path == self._metadata_lock_path:
             if self._metadata_lock_file is None:
-                self._metadata_lock_file = open(lock_path, 'w')
+                self._metadata_lock_file = open(lock_path, "w")
             lock_file = self._metadata_lock_file
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
@@ -72,7 +73,7 @@ class FeatureCache:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         else:
             # Fallback for other lock paths
-            lock_file = open(lock_path, 'w')
+            lock_file = open(lock_path, "w")
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
                 yield
@@ -103,7 +104,7 @@ class FeatureCache:
 
     def _load_metadata(self) -> None:
         """Load cache metadata from disk with cross-process locking."""
-        lock_path = self.metadata_path.with_suffix('.lock')
+        lock_path = self.metadata_path.with_suffix(".lock")
         try:
             if self.metadata_path.exists():
                 with self._file_lock(lock_path):
@@ -118,15 +119,15 @@ class FeatureCache:
 
     def _save_metadata(self) -> None:
         """Save cache metadata to disk with cross-process locking."""
-        lock_path = self.metadata_path.with_suffix('.lock')
+        lock_path = self.metadata_path.with_suffix(".lock")
         try:
             # Deepcopy OUTSIDE lock to minimize critical section time
             with self.metadata_lock:
                 metadata_copy = deepcopy(self.metadata)
 
             with self._file_lock(lock_path):
-                temp_path = self.metadata_path.with_suffix('.tmp')
-                with open(temp_path, 'w') as f:
+                temp_path = self.metadata_path.with_suffix(".tmp")
+                with open(temp_path, "w") as f:
                     json.dump(metadata_copy, f, indent=2)
                 temp_path.replace(self.metadata_path)
         except Exception as e:
@@ -145,7 +146,7 @@ class FeatureCache:
             try:
                 with self.metadata_lock:
                     metadata_entry = self.metadata.get(file_hash, {})
-                    cache_mtime = metadata_entry.get('cached_date')
+                    cache_mtime = metadata_entry.get("cached_date")
             except Exception as e:
                 logger.error(f"Error checking cache time for {file_path}: {e}")
                 return None
@@ -158,9 +159,9 @@ class FeatureCache:
 
             # Load features (no pickle required)
             with np.load(cache_path, allow_pickle=False) as data:
-                features = data['features']
-                if 'metadata_json' in data:
-                    metadata = json.loads(data['metadata_json'].tobytes().decode("utf-8"))
+                features = data["features"]
+                if "metadata_json" in data:
+                    metadata = json.loads(data["metadata_json"].tobytes().decode("utf-8"))
                 else:
                     # Legacy format — force re-cache
                     return None
@@ -171,11 +172,7 @@ class FeatureCache:
             logger.error(f"Error retrieving cached features for {file_path}: {e}")
             return None
 
-    def save_features(
-        self, file_path: Path,
-        features: np.ndarray,
-        metadata: dict
-    ) -> None:
+    def save_features(self, file_path: Path, features: np.ndarray, metadata: dict) -> None:
         """Save features with queued metadata update."""
         try:
             file_hash = self._get_file_key(file_path)
@@ -193,9 +190,9 @@ class FeatureCache:
             # Queue metadata update
             def update_metadata():
                 self.metadata[file_hash] = {
-                    'file_path': str(file_path),
-                    'cached_date': datetime.now().isoformat(),
-                    'feature_shape': features.shape
+                    "file_path": str(file_path),
+                    "cached_date": datetime.now().isoformat(),
+                    "feature_shape": features.shape,
                 }
 
             self.update_queue.put(update_metadata)
@@ -230,17 +227,20 @@ class FeatureCache:
                 metadata_values = list(self.metadata.values())
                 total_size = sum(f.stat().st_size for f in self.features_dir.glob("*.npz"))
 
-                last_modified = max(
-                    (datetime.fromisoformat(m['cached_date'])
-                     for m in metadata_values),
-                    default=None
-                ) if metadata_values else None
+                last_modified = (
+                    max(
+                        (datetime.fromisoformat(m["cached_date"]) for m in metadata_values),
+                        default=None,
+                    )
+                    if metadata_values
+                    else None
+                )
 
                 return {
-                    'total_files': len(self.metadata),
-                    'total_size_mb': total_size / (1024 * 1024),
-                    'cache_dir': str(self.cache_dir),
-                    'last_modified': last_modified
+                    "total_files": len(self.metadata),
+                    "total_size_mb": total_size / (1024 * 1024),
+                    "cache_dir": str(self.cache_dir),
+                    "last_modified": last_modified,
                 }
         except Exception as e:
             logger.error(f"Error getting cache info: {e}")
@@ -249,10 +249,10 @@ class FeatureCache:
     def __del__(self):
         """Clean shutdown of worker thread and cached file handles."""
         self.worker_running = False
-        if hasattr(self, 'worker_thread') and self.worker_thread.is_alive():
+        if hasattr(self, "worker_thread") and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=1.0)
         # Close cached lock file handle
-        if hasattr(self, '_metadata_lock_file') and self._metadata_lock_file is not None:
+        if hasattr(self, "_metadata_lock_file") and self._metadata_lock_file is not None:
             try:
                 self._metadata_lock_file.close()
             except Exception:

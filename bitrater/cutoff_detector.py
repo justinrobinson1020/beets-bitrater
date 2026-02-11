@@ -158,8 +158,8 @@ class CutoffDetector:
         # Find energy at these points (average over small window)
         window = GRADIENT_WINDOW_HZ
 
-        below_mask = (freqs >= below_point - window/2) & (freqs < below_point + window/2)
-        above_mask = (freqs >= above_point - window/2) & (freqs < above_point + window/2)
+        below_mask = (freqs >= below_point - window / 2) & (freqs < below_point + window / 2)
+        above_mask = (freqs >= above_point - window / 2) & (freqs < above_point + window / 2)
 
         if not np.any(below_mask) or not np.any(above_mask):
             return 0.0

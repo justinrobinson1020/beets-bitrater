@@ -1,6 +1,5 @@
 """Tests for _collect_training_data extracted from train/validate methods."""
 
-from pathlib import Path
 
 import pytest
 
@@ -14,7 +13,7 @@ class TestCollectTrainingData:
     def test_method_exists(self) -> None:
         """_collect_training_data should be a method on AudioQualityAnalyzer."""
         analyzer = AudioQualityAnalyzer()
-        assert hasattr(analyzer, '_collect_training_data')
+        assert hasattr(analyzer, "_collect_training_data")
         assert callable(analyzer._collect_training_data)
 
     def test_flat_structure(self, tmp_path) -> None:
@@ -34,7 +33,7 @@ class TestCollectTrainingData:
 
         assert len(data) == 7  # One file per class
         # Verify labels are correct
-        for path, label in data.items():
+        for _path, label in data.items():
             assert label in range(7)
 
     def test_nested_structure(self, tmp_path) -> None:

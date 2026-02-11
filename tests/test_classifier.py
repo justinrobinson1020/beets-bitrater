@@ -7,6 +7,7 @@ import pytest
 
 from bitrater.classifier import QualityClassifier
 from bitrater.constants import BITRATE_CLASSES
+from bitrater.types import SpectralFeatures
 
 
 class TestQualityClassifier:
@@ -82,7 +83,9 @@ class TestQualityClassifier:
         with pytest.raises(RuntimeError):
             classifier.predict(sample_features)
 
-    def test_predict_returns_prediction(self, training_features: tuple[list, list], sample_features: SpectralFeatures) -> None:
+    def test_predict_returns_prediction(
+        self, training_features: tuple[list, list], sample_features: SpectralFeatures
+    ) -> None:
         """Test that prediction returns ClassifierPrediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features
@@ -95,7 +98,12 @@ class TestQualityClassifier:
         assert 0 <= prediction.confidence <= 1
         assert isinstance(prediction.probabilities, dict)
 
-    def test_save_and_load_model(self, training_features: tuple[list, list], temp_model_path, sample_features: SpectralFeatures) -> None:
+    def test_save_and_load_model(
+        self,
+        training_features: tuple[list, list],
+        temp_model_path,
+        sample_features: SpectralFeatures,
+    ) -> None:
         """Test model persistence."""
         # Train and save
         classifier1 = QualityClassifier()
@@ -116,7 +124,12 @@ class TestQualityClassifier:
         assert pred1.format_type == pred2.format_type
         assert pred1.estimated_bitrate == pred2.estimated_bitrate
 
-    def test_predict_batch(self, training_features: tuple[list, list], sample_features: SpectralFeatures, lossless_features: SpectralFeatures) -> None:
+    def test_predict_batch(
+        self,
+        training_features: tuple[list, list],
+        sample_features: SpectralFeatures,
+        lossless_features: SpectralFeatures,
+    ) -> None:
         """Test batch prediction."""
         classifier = QualityClassifier()
         features_list, labels = training_features

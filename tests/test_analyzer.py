@@ -40,7 +40,9 @@ class TestAudioQualityAnalyzer:
         result = analyzer.analyze_file("/nonexistent/file.mp3")
         assert result is None
 
-    def test_analyze_file_untrained_returns_unknown(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_analyze_file_untrained_returns_unknown(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Test analyze_file returns UNKNOWN when classifier not trained."""
         analyzer = AudioQualityAnalyzer()
 
@@ -49,8 +51,10 @@ class TestAudioQualityAnalyzer:
         fake_audio.write_bytes(b"fake audio content")
 
         # Only mock the components that do actual audio processing
-        with patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features), \
-             patch.object(analyzer.file_analyzer, "analyze", return_value=Mock(bitrate=320)):
+        with (
+            patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features),
+            patch.object(analyzer.file_analyzer, "analyze", return_value=Mock(bitrate=320)),
+        ):
 
             result = analyzer.analyze_file(str(fake_audio))
 
@@ -122,7 +126,9 @@ class TestWarningGeneration:
         # Apply mocks — let confidence_calculator, transcode_detector, and
         # warning assembly in analyze_file() run for real
         patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata).start()
-        patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features).start()
+        patch.object(
+            analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features
+        ).start()
         patch.object(analyzer.classifier, "predict", return_value=mock_prediction).start()
         analyzer.classifier.trained = True
         patch.object(analyzer.spectrum_analyzer, "get_psd", return_value=(psd, freqs)).start()
@@ -130,7 +136,9 @@ class TestWarningGeneration:
 
         return analyzer, str(fake_audio)
 
-    def test_low_confidence_warning(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_low_confidence_warning(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Low classifier confidence + cutoff mismatch + soft gradient → confidence warning."""
         analyzer, path = self._make_analyzer(
             sample_features,
@@ -165,7 +173,9 @@ class TestWarningGeneration:
         assert result.is_transcode is True
         assert any("transcode" in w.lower() for w in result.warnings)
 
-    def test_bitrate_mismatch_warning(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_bitrate_mismatch_warning(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Stated 320 kbps but classifier says 128 → bitrate mismatch warning."""
         analyzer, path = self._make_analyzer(
             sample_features,
@@ -238,13 +248,15 @@ class TestAnalysisResult:
 
 class TestAnalyzerIsVbrPropagation:
     """Tests for analyzer propagating is_vbr from file metadata to spectrum analyzer.
-    
+
     These tests verify that VBR/CBR metadata from file analysis is correctly
     passed to the spectrum analyzer as a feature flag that may affect spectral
     characteristic detection (e.g., VBR may show different bitrate patterns).
     """
 
-    def test_analyze_file_passes_is_vbr_true_for_vbr_files(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_true_for_vbr_files(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Analyzer should pass is_vbr=1.0 to spectrum analyzer for VBR files."""
         analyzer = AudioQualityAnalyzer()
 
@@ -255,8 +267,12 @@ class TestAnalyzerIsVbrPropagation:
         # Mock metadata with VBR encoding
         mock_metadata: Mock = Mock(bitrate=245, encoding_type="VBR")
 
-        with patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata), \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features) as mock_spectrum:
+        with (
+            patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata),
+            patch.object(
+                analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features
+            ) as mock_spectrum,
+        ):
 
             analyzer.analyze_file(str(fake_audio))
 
@@ -264,7 +280,9 @@ class TestAnalyzerIsVbrPropagation:
             mock_spectrum.assert_called_once()
             assert mock_spectrum.call_args.kwargs["is_vbr"] == 1.0
 
-    def test_analyze_file_passes_is_vbr_false_for_cbr_files(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_for_cbr_files(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Analyzer should pass is_vbr=0.0 to spectrum analyzer for CBR files."""
         analyzer = AudioQualityAnalyzer()
 
@@ -275,8 +293,12 @@ class TestAnalyzerIsVbrPropagation:
         # Mock metadata with CBR encoding
         mock_metadata: Mock = Mock(bitrate=320, encoding_type="CBR")
 
-        with patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata), \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features) as mock_spectrum:
+        with (
+            patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata),
+            patch.object(
+                analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features
+            ) as mock_spectrum,
+        ):
 
             analyzer.analyze_file(str(fake_audio))
 
@@ -284,7 +306,9 @@ class TestAnalyzerIsVbrPropagation:
             mock_spectrum.assert_called_once()
             assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_analyze_file_passes_is_vbr_false_for_lossless(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_for_lossless(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Analyzer should pass is_vbr=0.0 for lossless files (not VBR)."""
         analyzer = AudioQualityAnalyzer()
 
@@ -293,15 +317,21 @@ class TestAnalyzerIsVbrPropagation:
 
         mock_metadata: Mock = Mock(bitrate=None, encoding_type="lossless")
 
-        with patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata), \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features) as mock_spectrum:
+        with (
+            patch.object(analyzer.file_analyzer, "analyze", return_value=mock_metadata),
+            patch.object(
+                analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features
+            ) as mock_spectrum,
+        ):
 
             analyzer.analyze_file(str(fake_audio))
 
             mock_spectrum.assert_called_once()
             assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_analyze_file_passes_is_vbr_false_when_metadata_unavailable(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_analyze_file_passes_is_vbr_false_when_metadata_unavailable(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Analyzer should default to is_vbr=0.0 when metadata extraction fails."""
         analyzer = AudioQualityAnalyzer()
 
@@ -309,15 +339,21 @@ class TestAnalyzerIsVbrPropagation:
         fake_audio.write_bytes(b"fake audio content")
 
         # metadata returns None (extraction failed)
-        with patch.object(analyzer.file_analyzer, "analyze", return_value=None), \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features) as mock_spectrum:
+        with (
+            patch.object(analyzer.file_analyzer, "analyze", return_value=None),
+            patch.object(
+                analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features
+            ) as mock_spectrum,
+        ):
 
             analyzer.analyze_file(str(fake_audio))
 
             mock_spectrum.assert_called_once()
             assert mock_spectrum.call_args.kwargs["is_vbr"] == 0.0
 
-    def test_train_passes_is_vbr_to_spectrum_analyzer(self, sample_features: SpectralFeatures, tmp_path: Path) -> None:
+    def test_train_passes_is_vbr_to_spectrum_analyzer(
+        self, sample_features: SpectralFeatures, tmp_path: Path
+    ) -> None:
         """Train method should pass is_vbr from metadata to spectrum analyzer."""
         analyzer = AudioQualityAnalyzer()
 
@@ -345,15 +381,21 @@ class TestAnalyzerIsVbrPropagation:
             is_vbr_by_path[path] = is_vbr
             return sample_features
 
-        with patch.object(analyzer.file_analyzer, "analyze", side_effect=mock_metadata), \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", side_effect=mock_analyze):
+        with (
+            patch.object(analyzer.file_analyzer, "analyze", side_effect=mock_metadata),
+            patch.object(analyzer.spectrum_analyzer, "analyze_file", side_effect=mock_analyze),
+        ):
 
             analyzer.train(training_data)
 
             # Verify VBR file got is_vbr=1.0
-            assert is_vbr_by_path[str(vbr_file)] == 1.0, f"VBR file should have is_vbr=1.0, got {is_vbr_by_path[str(vbr_file)]}"
+            assert (
+                is_vbr_by_path[str(vbr_file)] == 1.0
+            ), f"VBR file should have is_vbr=1.0, got {is_vbr_by_path[str(vbr_file)]}"
             # Verify CBR file got is_vbr=0.0
-            assert is_vbr_by_path[str(cbr_file)] == 0.0, f"CBR file should have is_vbr=0.0, got {is_vbr_by_path[str(cbr_file)]}"
+            assert (
+                is_vbr_by_path[str(cbr_file)] == 0.0
+            ), f"CBR file should have is_vbr=0.0, got {is_vbr_by_path[str(cbr_file)]}"
 
 
 class TestIntegratedTranscodeDetection:

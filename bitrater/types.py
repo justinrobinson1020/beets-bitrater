@@ -20,6 +20,7 @@ class SpectralFeatures:
     - 4 rolloff features (slope, total_drop, ratio_early, ratio_late)
     - is_vbr metadata flag for VBR/CBR discrimination
     """
+
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
     frequency_bands: list[tuple[float, float]]  # (start_freq, end_freq) pairs
     cutoff_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
@@ -46,6 +47,7 @@ class SpectralFeatures:
 @dataclass
 class ClassifierPrediction:
     """Results from the SVM classifier's prediction."""
+
     format_type: str  # "128", "192", "256", "320", "V0", "LOSSLESS"
     estimated_bitrate: int  # 128, 192, 256, 320, 245 (V0), or 1411 (lossless)
     confidence: float  # Confidence in prediction (0-1)
@@ -55,6 +57,7 @@ class ClassifierPrediction:
 @dataclass
 class FileMetadata:
     """Audio file metadata."""
+
     format: str  # mp3, flac, wav, etc.
     sample_rate: int
     duration: float
@@ -71,6 +74,7 @@ class FileMetadata:
 @dataclass
 class AnalysisResult:
     """Result of analyzing an audio file."""
+
     # Core identification
     filename: str
     file_format: str  # Actual container: "mp3", "flac", "wav"

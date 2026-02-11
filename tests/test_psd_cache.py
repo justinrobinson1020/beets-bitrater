@@ -1,7 +1,6 @@
 """Tests for PSD caching in SpectrumAnalyzer to avoid double-load."""
 
 import numpy as np
-import pytest
 
 from bitrater.spectrum import SpectrumAnalyzer
 

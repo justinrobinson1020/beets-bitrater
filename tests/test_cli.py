@@ -1,7 +1,6 @@
 """Tests for the bitrater CLI module."""
 
 import argparse
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,15 +18,25 @@ from bitrater.cli import (
 class TestSetupLogging:
     """Tests for _setup_logging."""
 
-    def test_default_level_is_info(self):
+    @patch("bitrater.cli.logging.basicConfig")
+    def test_default_level_is_info(self, mock_basic_config):
         import logging
-        _setup_logging(verbose=False)
-        logger = logging.getLogger("bitrater")
-        # basicConfig only applies to root; just verify it runs without error
 
-    def test_verbose_sets_debug(self):
+        _setup_logging(verbose=False)
+        mock_basic_config.assert_called_once_with(
+            level=logging.INFO,
+            format="%(levelname)s: %(message)s",
+        )
+
+    @patch("bitrater.cli.logging.basicConfig")
+    def test_verbose_sets_debug(self, mock_basic_config):
+        import logging
+
         _setup_logging(verbose=True)
-        # Verify it runs without error
+        mock_basic_config.assert_called_once_with(
+            level=logging.DEBUG,
+            format="%(levelname)s: %(message)s",
+        )
 
 
 class TestCmdAnalyze:

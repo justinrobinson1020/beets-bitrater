@@ -1,6 +1,5 @@
 """Additional tests for spectrum.py to improve coverage."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np

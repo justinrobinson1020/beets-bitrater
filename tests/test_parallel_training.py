@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from bitrater.analyzer import AudioQualityAnalyzer
+from bitrater.types import SpectralFeatures
 
 
 class TestDynamicWorkerCount:
@@ -72,7 +73,9 @@ class TestDynamicWorkerCount:
             many_cpu_workers = analyzer._get_default_workers()
 
         # With 1 vs 16 CPUs, we should see different worker counts
-        assert single_cpu_workers != many_cpu_workers, "Worker count should scale with CPU count"  # At minimum different from hardcoded
+        assert (
+            single_cpu_workers != many_cpu_workers
+        ), "Worker count should scale with CPU count"  # At minimum different from hardcoded
 
 
 class TestParallelFeatureExtraction:
@@ -109,9 +112,11 @@ class TestParallelFeatureExtraction:
         for i in range(3):
             (tmp_path / "lossless" / f"test_{i}.flac").write_bytes(b"fake")
 
-        with patch.object(analyzer, "train_parallel") as mock_train_parallel, \
-             patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features), \
-             patch.object(analyzer.file_analyzer, "analyze", return_value=None):
+        with (
+            patch.object(analyzer, "train_parallel") as mock_train_parallel,
+            patch.object(analyzer.spectrum_analyzer, "analyze_file", return_value=sample_features),
+            patch.object(analyzer.file_analyzer, "analyze", return_value=None),
+        ):
             analyzer.train_from_directory(tmp_path)
             assert mock_train_parallel.called
 
@@ -123,6 +128,7 @@ class TestExtractFeaturesWorker:
     def reset_worker_state(self) -> None:
         """Reset worker globals before each test."""
         import bitrater.analyzer as analyzer_module
+
         # Reset the worker singleton state
         analyzer_module._worker_initialized = False
         analyzer_module._worker_analyzer = None
@@ -133,7 +139,9 @@ class TestExtractFeaturesWorker:
         analyzer_module._worker_analyzer = None
         analyzer_module._worker_file_analyzer = None
 
-    def test_extract_features_worker_returns_tuple(self, sample_features: SpectralFeatures, tmp_path) -> None:
+    def test_extract_features_worker_returns_tuple(
+        self, sample_features: SpectralFeatures, tmp_path
+    ) -> None:
         """Worker function should return (file_path, features) tuple for valid file."""
         from bitrater.analyzer import _extract_features_worker
 
@@ -226,7 +234,9 @@ class TestJoblibIntegration:
                 # Verify parallel_config was called with loky backend
                 mock_config.assert_called()
                 config_kwargs = mock_config.call_args[1]
-                assert config_kwargs.get("backend") == "loky", "train_parallel should use loky backend"
+                assert (
+                    config_kwargs.get("backend") == "loky"
+                ), "train_parallel should use loky backend"
                 assert config_kwargs.get("inner_max_num_threads") == 1, "Should limit inner threads"
 
                 # Verify Parallel n_jobs matches num_workers

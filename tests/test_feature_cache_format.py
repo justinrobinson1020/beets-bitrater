@@ -3,7 +3,6 @@
 import json
 
 import numpy as np
-import pytest
 
 from bitrater.feature_cache import FeatureCache
 

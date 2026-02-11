@@ -1,6 +1,5 @@
 """Tests for spectrum analyzer."""
 
-
 import numpy as np
 import pytest
 
@@ -236,7 +235,7 @@ class TestSFB21AndRolloffFeatures:
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
         )
-        assert hasattr(features, 'sfb21_features')
+        assert hasattr(features, "sfb21_features")
         assert features.sfb21_features.shape == (6,)
 
     def test_spectral_features_has_rolloff_field(self) -> None:
@@ -245,7 +244,7 @@ class TestSFB21AndRolloffFeatures:
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
         )
-        assert hasattr(features, 'rolloff_features')
+        assert hasattr(features, "rolloff_features")
         assert features.rolloff_features.shape == (4,)
 
     def test_as_vector_includes_sfb21_and_rolloff(self) -> None:
@@ -329,9 +328,9 @@ class TestExtractRolloffFeatures:
         result = analyzer.analyze_file(str(test_file))
 
         assert result is not None
-        assert hasattr(result, 'sfb21_features')
+        assert hasattr(result, "sfb21_features")
         assert result.sfb21_features.shape == (6,)
         assert result.sfb21_features.dtype == np.float32
-        assert hasattr(result, 'rolloff_features')
+        assert hasattr(result, "rolloff_features")
         assert result.rolloff_features.shape == (4,)
         assert result.rolloff_features.dtype == np.float32

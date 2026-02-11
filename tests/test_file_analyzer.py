@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
+from mutagen.mp3 import BitrateMode
 
 from bitrater.file_analyzer import FileAnalyzer
 
@@ -101,7 +101,7 @@ class TestAnalyzeMp3:
             length=200.0,
             channels=2,
             bitrate=245000,
-            bitrate_mode=1,
+            bitrate_mode=BitrateMode.VBR,
             encoder_info="",
         )
         mock_audio = Mock(info=mock_info, tags=Mock())
@@ -118,21 +118,21 @@ class TestDetermineMp3EncodingType:
     """Tests for _determine_mp3_encoding_type."""
 
     def test_vbr_mode(self) -> None:
-        """bitrate_mode=1 should return VBR."""
+        """BitrateMode.VBR should return VBR."""
         fa = FileAnalyzer()
-        mock_audio = Mock(info=Mock(bitrate_mode=1))
+        mock_audio = Mock(info=Mock(bitrate_mode=BitrateMode.VBR))
         assert fa._determine_mp3_encoding_type(mock_audio) == "VBR"
 
     def test_abr_mode(self) -> None:
-        """bitrate_mode=2 should return ABR."""
+        """BitrateMode.ABR should return ABR."""
         fa = FileAnalyzer()
-        mock_audio = Mock(info=Mock(bitrate_mode=2))
+        mock_audio = Mock(info=Mock(bitrate_mode=BitrateMode.ABR))
         assert fa._determine_mp3_encoding_type(mock_audio) == "ABR"
 
     def test_cbr_mode(self) -> None:
-        """bitrate_mode=0 should return CBR."""
+        """BitrateMode.CBR should return CBR."""
         fa = FileAnalyzer()
-        mock_audio = Mock(info=Mock(bitrate_mode=0))
+        mock_audio = Mock(info=Mock(bitrate_mode=BitrateMode.CBR))
         assert fa._determine_mp3_encoding_type(mock_audio) == "CBR"
 
     def test_missing_bitrate_mode_defaults_to_cbr(self) -> None:

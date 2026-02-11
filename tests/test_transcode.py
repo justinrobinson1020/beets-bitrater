@@ -1,9 +1,9 @@
 """Tests for the transcode module."""
 
 import concurrent.futures
+import logging
 import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -371,12 +371,15 @@ class TestProgressTracker:
         tracker.complete_file("test.flac", 6, 6)
         assert tracker.completed_files == 1
 
-    def test_finish(self):
+    def test_finish(self, caplog):
         tracker = ProgressTracker(10, 6)
         tracker.completed_files = 5
         tracker.completed_tasks = 30
-        # Should not raise
-        tracker.finish()
+        with caplog.at_level(logging.INFO, logger="bitrater.transcode"):
+            tracker.finish()
+        assert "Total Files Processed: 10" in caplog.text
+        assert "Total Formats Per File: 6" in caplog.text
+        assert "Total Encodes Completed: 30" in caplog.text
 
 
 class TestMigrateExistingFiles:

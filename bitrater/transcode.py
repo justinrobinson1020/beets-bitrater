@@ -98,9 +98,7 @@ class AudioEncoder:
         logger.info("STAGE 1: MP3 encoding process:")
         logger.info(f"├── Found {len(source_files)} source files")
         logger.info(f"├── Will create {total_formats} formats per file")
-        logger.info(
-            f"├── Total encodes to perform: {len(source_files) * total_formats}"
-        )
+        logger.info(f"├── Total encodes to perform: {len(source_files) * total_formats}")
         logger.info(f"└── Using {max_workers} worker threads")
 
         # Cap concurrent in-flight WAVs to limit disk usage while keeping
@@ -111,14 +109,10 @@ class AudioEncoder:
         max_inflight = max(3, -(-max_workers // total_formats) * 2)
 
         # Each entry: (wav_path, futures_list, filename, task_count)
-        in_flight: list[
-            tuple[Path | None, list[concurrent.futures.Future], str, int]
-        ] = []
+        in_flight: list[tuple[Path | None, list[concurrent.futures.Future], str, int]] = []
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=max_workers
-            ) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 for source_file in source_files:
                     # Drain completed files to free WAVs and keep slots open
                     self._drain_ready_files(in_flight, progress)
@@ -132,9 +126,7 @@ class AudioEncoder:
                     self._ensure_lossless_symlink(source_file, sanitized_name)
 
                     try:
-                        prepared = self._prepare_file(
-                            source_file, sanitized_name
-                        )
+                        prepared = self._prepare_file(source_file, sanitized_name)
                     except Exception as e:
                         logger.error(f"Error preparing {source_file.name}: {e}")
                         continue
@@ -150,12 +142,8 @@ class AudioEncoder:
                         self._cleanup_temp_file(temp_wav)
                         continue
 
-                    futures = [
-                        executor.submit(self._run_encode, task) for task in tasks
-                    ]
-                    in_flight.append(
-                        (temp_wav, futures, source_file.name, len(tasks))
-                    )
+                    futures = [executor.submit(self._run_encode, task) for task in tasks]
+                    in_flight.append((temp_wav, futures, source_file.name, len(tasks)))
 
                 # Drain remaining in-flight files
                 while in_flight:
@@ -219,9 +207,7 @@ class AudioEncoder:
 
     def _drain_completed_file(
         self,
-        in_flight: list[
-            tuple["Path | None", list[concurrent.futures.Future], str, int]
-        ],
+        in_flight: list[tuple["Path | None", list[concurrent.futures.Future], str, int]],
         progress: "ProgressTracker",
     ) -> None:
         """Wait for the oldest in-flight file to finish, update progress, clean up."""
@@ -241,9 +227,7 @@ class AudioEncoder:
 
     def _drain_ready_files(
         self,
-        in_flight: list[
-            tuple["Path | None", list[concurrent.futures.Future], str, int]
-        ],
+        in_flight: list[tuple["Path | None", list[concurrent.futures.Future], str, int]],
         progress: "ProgressTracker",
     ) -> None:
         """Non-blocking drain: collect any in-flight files whose futures all finished."""
@@ -252,10 +236,7 @@ class AudioEncoder:
             wav_path, futures, filename, task_count = in_flight[i]
             if all(f.done() for f in futures):
                 in_flight.pop(i)
-                successful = sum(
-                    1 for f in futures
-                    if not f.exception() and f.result()
-                )
+                successful = sum(1 for f in futures if not f.exception() and f.result())
                 for f in futures:
                     if f.exception():
                         logger.error(f"Encoding task failed for {filename}: {f.exception()}")
@@ -436,6 +417,7 @@ class AudioEncoder:
 
         return False
 
+
 class ProgressTracker:
     """Track progress and timing of the encoding process."""
 
@@ -452,17 +434,11 @@ class ProgressTracker:
         """Record one encoding task completed."""
         self.completed_tasks += 1
 
-    def complete_file(
-        self, filename: str, task_count: int, successful: int
-    ) -> None:
+    def complete_file(self, filename: str, task_count: int, successful: int) -> None:
         """Record a file fully completed and log progress."""
         self.completed_files += 1
         elapsed = time.time() - self.start_time
-        overall_pct = (
-            (self.completed_tasks / self.total_tasks * 100)
-            if self.total_tasks
-            else 0
-        )
+        overall_pct = (self.completed_tasks / self.total_tasks * 100) if self.total_tasks else 0
         files_per_sec = self.completed_files / elapsed if elapsed > 0 else 0
         remaining = self.total_files - self.completed_files
         eta = remaining / files_per_sec if files_per_sec > 0 else 0
@@ -485,9 +461,7 @@ class ProgressTracker:
         logger.info(f"Total Formats Per File: {self.total_formats}")
         logger.info(f"Total Encodes Completed: {self.completed_tasks}")
         logger.info(f"Total Time: {timedelta(seconds=int(total_time))}")
-        logger.info(
-            f"Average Time Per File: {timedelta(seconds=int(avg_time_per_file))}"
-        )
+        logger.info(f"Average Time Per File: {timedelta(seconds=int(avg_time_per_file))}")
         logger.info("=" * 50)
 
 
@@ -506,26 +480,26 @@ Examples:
 
   # Create MP3 training data
   python transcode.py
-        """
+        """,
     )
 
     parser.add_argument(
         "--migrate",
         action="store_true",
-        help="Migrate existing files from old directory structure to new structure"
+        help="Migrate existing files from old directory structure to new structure",
     )
 
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="With --migrate, show what would be moved without actually moving files"
+        help="With --migrate, show what would be moved without actually moving files",
     )
 
     parser.add_argument(
         "--workers",
         type=int,
         default=None,
-        help="Number of worker threads (default: CPU cores - 1)"
+        help="Number of worker threads (default: CPU cores - 1)",
     )
 
     args = parser.parse_args()
@@ -560,7 +534,9 @@ Examples:
             if temp_parent.exists():
                 temp_files = list(temp_parent.glob("temp_*.wav"))
                 if temp_files:
-                    logger.info(f"Cleaning up {len(temp_files)} temporary files in {temp_parent}...")
+                    logger.info(
+                        f"Cleaning up {len(temp_files)} temporary files in {temp_parent}..."
+                    )
                     for temp_file in temp_files:
                         try:
                             temp_file.unlink()
@@ -676,7 +652,9 @@ def migrate_existing_files(output_dir: Path, dry_run: bool = False) -> None:
                     old_dir.rmdir()
                     logger.info(f"└── Removed empty directory: {old_dir}")
                 else:
-                    logger.warning(f"└── Left directory {old_dir} (contains {len(remaining_files)} files)")
+                    logger.warning(
+                        f"└── Left directory {old_dir} (contains {len(remaining_files)} files)"
+                    )
             except Exception as e:
                 logger.error(f"└── Error removing directory {old_dir}: {e}")
 
@@ -695,13 +673,13 @@ def main_migrate() -> None:
     """Entry point for migration-only operation."""
     parser = argparse.ArgumentParser(
         description="Migrate existing training data to new directory structure",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be moved without actually moving files"
+        help="Show what would be moved without actually moving files",
     )
 
     args = parser.parse_args()
@@ -719,6 +697,7 @@ def main_migrate() -> None:
     except Exception as e:
         logger.error(f"Migration failed: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

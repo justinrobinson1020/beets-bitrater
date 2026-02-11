@@ -1,6 +1,5 @@
 """Tests for confidence calculation with penalties."""
 
-
 from bitrater.confidence import ConfidenceCalculator
 from bitrater.constants import CLASS_CUTOFFS, CUTOFF_TOLERANCE
 

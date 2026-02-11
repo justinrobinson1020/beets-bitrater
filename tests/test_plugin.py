@@ -8,12 +8,11 @@ metaclass interferes.
 
 import importlib
 import logging
-import sys
-from pathlib import Path
-from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
+
+from bitrater.types import AnalysisResult
 
 # We need beets available as imports. If beets isn't installed, mock it.
 _beets_available = importlib.util.find_spec("beets") is not None
@@ -21,16 +20,37 @@ _beets_available = importlib.util.find_spec("beets") is not None
 if not _beets_available:
     pytest.skip("beets not installed", allow_module_level=True)
 
-from beets.ui import UserError
+from beets.ui import UserError  # noqa: E402
 
-from beetsplug.bitrater.plugin import BitraterPlugin
+from beetsplug.bitrater.plugin import BitraterPlugin  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _propagate_beets_logger():
+    """Enable log propagation so caplog can capture beets.bitrater output.
+
+    The beets library sets propagate=False on the 'beets' logger and adds its
+    own StreamHandler. This blocks caplog from seeing records. We temporarily
+    re-enable propagation for test assertions.
+    """
+    beets_logger = logging.getLogger("beets")
+    orig_propagate = beets_logger.propagate
+    beets_logger.propagate = True
+    yield
+    beets_logger.propagate = orig_propagate
 
 
 @pytest.fixture
 def plugin():
-    """Create a BitraterPlugin instance with mocked internals."""
-    # BitraterPlugin.__init__ calls super().__init__() which needs a beets
-    # config system.  We bypass that with __new__ + manual setup.
+    """Create a BitraterPlugin instance with mocked internals.
+
+    NOTE: Uses object.__new__() to bypass __init__() because BitraterPlugin's
+    __init__ calls super().__init__() which requires the full beets config
+    system (confuse, beets.config, plugin template registration). This means:
+    - Plugin initialization logic (model loading, event registration, config
+      defaults) is NOT tested by this fixture.
+    - Any new required attributes added in __init__ must be manually added here.
+    """
     p = object.__new__(BitraterPlugin)
     p.analyzer = MagicMock()
     p.config = MagicMock()
@@ -67,8 +87,6 @@ class TestProcessResults:
     """Tests for _process_results."""
 
     def test_stores_results_on_items(self, plugin):
-        from bitrater.types import AnalysisResult
-
         item = MagicMock()
         result = AnalysisResult(
             filename="test.mp3",
@@ -96,8 +114,6 @@ class TestProcessResults:
         item.store.assert_not_called()
 
     def test_transcode_detected_warns(self, plugin):
-        from bitrater.types import AnalysisResult
-
         item = MagicMock()
         item.path = "/music/test.mp3"
         result = AnalysisResult(
@@ -117,8 +133,6 @@ class TestProcessResults:
         assert item.is_transcoded is True
 
     def test_verbose_prints_analysis(self, plugin):
-        from bitrater.types import AnalysisResult
-
         item = MagicMock()
         item.title = "Test Song"
         item.path = "/music/test.mp3"
@@ -141,23 +155,27 @@ class TestProcessResults:
 class TestPrintSummary:
     """Tests for _print_summary."""
 
-    def test_all_ok(self, plugin):
-        # Should not raise
-        plugin._print_summary(total=10, transcodes=0, low_confidence=0)
+    def test_all_ok(self, plugin, caplog):
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_summary(total=10, transcodes=0, low_confidence=0)
+        assert "Total files analyzed: 10" in caplog.text
+        assert "All files appear to be original quality" in caplog.text
 
-    def test_with_transcodes(self, plugin):
-        plugin._print_summary(total=10, transcodes=3, low_confidence=0)
+    def test_with_transcodes(self, plugin, caplog):
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_summary(total=10, transcodes=3, low_confidence=0)
+        assert "Potential transcodes detected: 3" in caplog.text
 
-    def test_with_low_confidence(self, plugin):
-        plugin._print_summary(total=10, transcodes=0, low_confidence=2)
+    def test_with_low_confidence(self, plugin, caplog):
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_summary(total=10, transcodes=0, low_confidence=2)
+        assert "Low confidence results: 2" in caplog.text
 
 
 class TestPrintAnalysis:
     """Tests for _print_analysis."""
 
-    def test_prints_without_transcode(self, plugin):
-        from bitrater.types import AnalysisResult
-
+    def test_prints_without_transcode(self, plugin, caplog):
         item = MagicMock()
         item.title = "Song"
         item.path = "/test.mp3"
@@ -174,11 +192,14 @@ class TestPrintAnalysis:
             quality_gap=0,
         )
 
-        plugin._print_analysis(item, result)
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_analysis(item, result)
+        assert "Song" in caplog.text
+        assert "320" in caplog.text
+        assert "90.0%" in caplog.text
+        assert "TRANSCODE" not in caplog.text
 
-    def test_prints_with_transcode_and_warnings(self, plugin):
-        from bitrater.types import AnalysisResult
-
+    def test_prints_with_transcode_and_warnings(self, plugin, caplog):
         item = MagicMock()
         item.title = "Bad Song"
         item.path = "/test.mp3"
@@ -197,13 +218,18 @@ class TestPrintAnalysis:
             warnings=["Low confidence", "Possible transcode"],
         )
 
-        plugin._print_analysis(item, result)
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_analysis(item, result)
+        assert "Bad Song" in caplog.text
+        assert "TRANSCODE DETECTED" in caplog.text
+        assert "Low confidence" in caplog.text
+        assert "Possible transcode" in caplog.text
 
 
 class TestPrintValidationResults:
     """Tests for _print_validation_results."""
 
-    def test_high_accuracy(self, plugin):
+    def test_high_accuracy(self, plugin, caplog):
         metrics = {
             "total_samples": 100,
             "train_samples": 80,
@@ -217,9 +243,13 @@ class TestPrintValidationResults:
             "confusion_matrix": [[5]],
             "class_names": ["128"],
         }
-        plugin._print_validation_results(metrics)
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_validation_results(metrics)
+        assert "MODEL VALIDATION RESULTS" in caplog.text
+        assert "97.0%" in caplog.text
+        assert "Matches or exceeds" in caplog.text
 
-    def test_medium_accuracy(self, plugin):
+    def test_medium_accuracy(self, plugin, caplog):
         metrics = {
             "total_samples": 100,
             "train_samples": 80,
@@ -231,9 +261,12 @@ class TestPrintValidationResults:
             "confusion_matrix": [],
             "class_names": [],
         }
-        plugin._print_validation_results(metrics)
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_validation_results(metrics)
+        assert "92.0%" in caplog.text
+        assert "Slightly below" in caplog.text
 
-    def test_low_accuracy(self, plugin):
+    def test_low_accuracy(self, plugin, caplog):
         metrics = {
             "total_samples": 100,
             "train_samples": 80,
@@ -245,7 +278,10 @@ class TestPrintValidationResults:
             "confusion_matrix": [],
             "class_names": [],
         }
-        plugin._print_validation_results(metrics)
+        with caplog.at_level(logging.INFO, logger="beets"):
+            plugin._print_validation_results(metrics)
+        assert "74.0%" in caplog.text
+        assert "Below expected accuracy" in caplog.text
 
 
 class TestTrainClassifier:
@@ -410,8 +446,6 @@ class TestImportTask:
 
     def test_auto_analysis_runs(self, plugin):
         """When auto is True and model trained, analyze imported files."""
-        from bitrater.types import AnalysisResult
-
         plugin.config["auto"].get.return_value = True
         plugin.config["warn_transcodes"].get.return_value = True
         plugin.analyzer.is_trained = True
@@ -463,3 +497,6 @@ class TestEnableVerboseLogging:
 
     def test_sets_log_level(self, plugin):
         plugin._enable_verbose_logging()
+        bitrater_logger = logging.getLogger("beets.bitrater")
+        assert bitrater_logger.level == logging.INFO
+        assert bitrater_logger.propagate is True

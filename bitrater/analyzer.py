@@ -12,10 +12,10 @@ from joblib import Parallel, delayed, parallel_config
 from tqdm import tqdm
 
 # Suppress numba FNV hashing warning (harmless, triggers once per worker process)
-warnings.filterwarnings('ignore', message='FNV hashing is not implemented', module='numba')
+warnings.filterwarnings("ignore", message="FNV hashing is not implemented", module="numba")
 
 # Import constants (lightweight, no numpy/scipy)
-from .constants import (
+from .constants import (  # noqa: E402
     BITRATE_MISMATCH_FACTOR,
     CLASS_LABELS,
     LOSSLESS_CONTAINERS,
@@ -24,12 +24,8 @@ from .constants import (
 
 # TYPE_CHECKING imports for type hints only - not imported at runtime in workers
 if TYPE_CHECKING:
-    from .classifier import QualityClassifier
-    from .confidence import ConfidenceCalculator
-    from .cutoff_detector import CutoffDetector
     from .file_analyzer import FileAnalyzer
     from .spectrum import SpectrumAnalyzer
-    from .transcode_detector import TranscodeDetector
     from .types import AnalysisResult, SpectralFeatures
 
 logger = logging.getLogger("beets.bitrater")
@@ -37,8 +33,8 @@ logger = logging.getLogger("beets.bitrater")
 
 # Module-level cache for worker instances (one per process)
 _worker_initialized: bool = False
-_worker_analyzer: "SpectrumAnalyzer | None" = None
-_worker_file_analyzer: "FileAnalyzer | None" = None
+_worker_analyzer: SpectrumAnalyzer | None = None
+_worker_file_analyzer: FileAnalyzer | None = None
 
 
 def _init_worker() -> None:
@@ -52,6 +48,7 @@ def _init_worker() -> None:
     clamp_threads_hard()
 
     import numba
+
     numba.set_num_threads(1)
 
     _worker_initialized = True
@@ -94,7 +91,9 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
             logger.warning(f"Failed to extract features from {file_path}: {e}")
             return (file_path, None)
         except Exception as e:
-            logger.error(f"Unexpected error extracting features from {file_path}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error extracting features from {file_path}: {e}", exc_info=True
+            )
             return (file_path, None)
 
 
@@ -122,7 +121,6 @@ class AudioQualityAnalyzer:
         from .file_analyzer import FileAnalyzer
         from .spectrum import SpectrumAnalyzer
         from .transcode_detector import TranscodeDetector
-        from .types import SpectralFeatures  # noqa: F841
 
         self.spectrum_analyzer = SpectrumAnalyzer()
         self.classifier = QualityClassifier(model_path)
@@ -226,9 +224,7 @@ class AudioQualityAnalyzer:
 
         # Low confidence warning
         if conf_result.final_confidence < LOW_CONFIDENCE_THRESHOLD:
-            warnings.append(
-                f"Low confidence in detection: {conf_result.final_confidence:.1%}"
-            )
+            warnings.append(f"Low confidence in detection: {conf_result.final_confidence:.1%}")
 
         # Transcode warning
         if transcode_result.is_transcode:
@@ -337,7 +333,9 @@ class AudioQualityAnalyzer:
         logger.info("=" * 60)
         logger.info("FEATURE EXTRACTION COMPLETE")
         logger.info(f"  Total time: {extraction_time:.2f}s")
-        logger.info(f"  Successful: {len(features_list)}/{len(training_data)} ({success_rate:.1f}%)")
+        logger.info(
+            f"  Successful: {len(features_list)}/{len(training_data)} ({success_rate:.1f}%)"
+        )
         logger.info(f"  Failed: {len(failed_files)}")
         logger.info(f"  Average: {extraction_time/len(training_data):.3f}s per file")
         if failed_files:
@@ -465,7 +463,9 @@ class AudioQualityAnalyzer:
 
         logger.info("=" * 60)
         logger.info("TRAIN/TEST SPLIT")
-        logger.info(f"  Training set: {len(train_paths)} files ({len(train_paths)/len(paths)*100:.1f}%)")
+        logger.info(
+            f"  Training set: {len(train_paths)} files ({len(train_paths)/len(paths)*100:.1f}%)"
+        )
         logger.info(f"  Test set: {len(test_paths)} files ({len(test_paths)/len(paths)*100:.1f}%)")
         logger.info("=" * 60)
 
@@ -519,7 +519,9 @@ class AudioQualityAnalyzer:
         logger.info("=" * 60)
         logger.info("FEATURE EXTRACTION COMPLETE")
         logger.info(f"  Duration: {extraction_time:.2f}s")
-        logger.info(f"  Success rate: {len(test_features)/len(test_paths)*100:.1f}% ({len(test_features)}/{len(test_paths)})")
+        logger.info(
+            f"  Success rate: {len(test_features)/len(test_paths)*100:.1f}% ({len(test_features)}/{len(test_paths)})"
+        )
         logger.info(f"  Throughput: {len(test_features)/extraction_time:.1f} files/s")
         logger.info("=" * 60)
 
@@ -590,11 +592,13 @@ class AudioQualityAnalyzer:
         logger.info(f"Overall Accuracy: {accuracy:.1%}")
         logger.info("")
         logger.info("Per-Class Performance:")
-        logger.info(f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
+        logger.info(
+            f"{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}"
+        )
         logger.info("-" * 60)
         for cls in class_names:
             metrics = per_class[cls]
-            if metrics['support'] > 0:
+            if metrics["support"] > 0:
                 logger.info(
                     f"{cls:<12} "
                     f"{metrics['precision']:>10.1%} "
@@ -607,7 +611,9 @@ class AudioQualityAnalyzer:
         logger.info(f"{'Actual/Pred':<12} " + " ".join(f"{name:>6}" for name in class_names))
         for i, actual_name in enumerate(class_names):
             if support[i] > 0:  # Only show rows with actual samples
-                row_str = f"{actual_name:<12} " + " ".join(f"{cm[i][j]:>6}" for j in range(len(class_names)))
+                row_str = f"{actual_name:<12} " + " ".join(
+                    f"{cm[i][j]:>6}" for j in range(len(class_names))
+                )
                 logger.info(row_str)
         logger.info("=" * 60)
 
@@ -822,7 +828,9 @@ class AudioQualityAnalyzer:
         logger.info("=" * 60)
         logger.info("FEATURE EXTRACTION COMPLETE")
         logger.info(f"  Duration: {extraction_time:.2f}s")
-        logger.info(f"  Success rate: {success_rate:.1f}% ({len(features_list)}/{len(training_data)})")
+        logger.info(
+            f"  Success rate: {success_rate:.1f}% ({len(features_list)}/{len(training_data)})"
+        )
         logger.info(f"  Throughput: {len(features_list)/extraction_time:.1f} files/s")
         if failed_files:
             logger.warning(f"  Failed: {len(failed_files)} files")

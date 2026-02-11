@@ -1,9 +1,8 @@
 """Additional tests for file_analyzer.py to improve coverage."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
+from mutagen.mp3 import BitrateMode
 
 from bitrater.file_analyzer import FileAnalyzer
 
@@ -145,25 +144,31 @@ class TestDetermineMp3EncodingType:
     def test_vbr_mode(self):
         analyzer = FileAnalyzer()
         mock_audio = MagicMock()
-        mock_audio.info.bitrate_mode = 1  # VBR
+        mock_audio.info.bitrate_mode = BitrateMode.VBR
         assert analyzer._determine_mp3_encoding_type(mock_audio) == "VBR"
 
     def test_abr_mode(self):
         analyzer = FileAnalyzer()
         mock_audio = MagicMock()
-        mock_audio.info.bitrate_mode = 2  # ABR
+        mock_audio.info.bitrate_mode = BitrateMode.ABR
         assert analyzer._determine_mp3_encoding_type(mock_audio) == "ABR"
 
-    def test_cbr_default(self):
+    def test_cbr_mode(self):
         analyzer = FileAnalyzer()
         mock_audio = MagicMock()
-        mock_audio.info.bitrate_mode = 0  # CBR
+        mock_audio.info.bitrate_mode = BitrateMode.CBR
         assert analyzer._determine_mp3_encoding_type(mock_audio) == "CBR"
 
-    def test_no_bitrate_mode(self):
+    def test_unknown_mode_defaults_to_cbr(self):
         analyzer = FileAnalyzer()
         mock_audio = MagicMock()
-        del mock_audio.info.bitrate_mode  # Remove the attribute
+        mock_audio.info.bitrate_mode = BitrateMode.UNKNOWN
+        assert analyzer._determine_mp3_encoding_type(mock_audio) == "CBR"
+
+    def test_no_bitrate_mode_attribute(self):
+        analyzer = FileAnalyzer()
+        mock_audio = MagicMock()
+        del mock_audio.info.bitrate_mode
         assert analyzer._determine_mp3_encoding_type(mock_audio) == "CBR"
 
 

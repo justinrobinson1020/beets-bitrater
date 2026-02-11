@@ -102,8 +102,7 @@ class ConfidenceCalculator:
             return self.mismatch_penalty_small
         elif difference <= CUTOFF_TOLERANCE * 4:
             warnings.append(
-                f"Cutoff mismatch: expected ~{expected_cutoff} Hz, "
-                f"found {detected_cutoff} Hz"
+                f"Cutoff mismatch: expected ~{expected_cutoff} Hz, " f"found {detected_cutoff} Hz"
             )
             return self.mismatch_penalty_medium
         else:
@@ -124,7 +123,5 @@ class ConfidenceCalculator:
         elif gradient >= self.sharp_threshold * 0.5:
             return self.gradient_penalty_moderate
         else:
-            warnings.append(
-                "Gradual frequency rolloff detected - may be natural, not encoded"
-            )
+            warnings.append("Gradual frequency rolloff detected - may be natural, not encoded")
             return self.gradient_penalty_soft

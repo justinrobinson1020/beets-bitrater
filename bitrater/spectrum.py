@@ -11,9 +11,8 @@ import librosa
 import numpy as np
 from scipy import signal, stats
 
-from .feature_cache import FeatureCache
-
 from .constants import MINIMUM_DURATION, MINIMUM_SAMPLE_RATE, SPECTRAL_PARAMS
+from .feature_cache import FeatureCache
 from .types import SpectralFeatures
 
 logger = logging.getLogger("beets.bitrater")
@@ -97,14 +96,17 @@ class SpectrumAnalyzer:
                     metadata.get("n_bands") == self.num_bands
                     and metadata.get("approach") == "encoder_agnostic_v8"
                 ):
-                    psd_bands, cutoff_feats, temporal_feats, artifact_feats, sfb21_feats, rolloff_feats = (
-                        self._split_feature_vector(features, metadata)
-                    )
+                    (
+                        psd_bands,
+                        cutoff_feats,
+                        temporal_feats,
+                        artifact_feats,
+                        sfb21_feats,
+                        rolloff_feats,
+                    ) = self._split_feature_vector(features, metadata)
                     return SpectralFeatures(
                         features=psd_bands,
-                        frequency_bands=metadata.get(
-                            "band_frequencies", self._band_frequencies
-                        ),
+                        frequency_bands=metadata.get("band_frequencies", self._band_frequencies),
                         cutoff_features=cutoff_feats,
                         temporal_features=temporal_feats,
                         artifact_features=artifact_feats,
@@ -139,9 +141,7 @@ class SpectrumAnalyzer:
             # Extract encoder-agnostic extras
             cutoff_features = self._extract_cutoff_features(psd, freqs)
             temporal_features = self._extract_temporal_features(y, sr)
-            artifact_features = self._extract_artifact_features(
-                psd, freqs, cutoff_features
-            )
+            artifact_features = self._extract_artifact_features(psd, freqs, cutoff_features)
             sfb21_features = self._extract_sfb21_features(y, sr)
             rolloff_features = self._extract_rolloff_features(y, sr)
 
@@ -194,14 +194,10 @@ class SpectrumAnalyzer:
             return None
         except Exception as e:
             # Unexpected errors - log for investigation
-            logger.error(
-                f"Unexpected error analyzing file {file_path}: {e}", exc_info=True
-            )
+            logger.error(f"Unexpected error analyzing file {file_path}: {e}", exc_info=True)
             return None
 
-    def _extract_band_features(
-        self, psd: np.ndarray, freqs: np.ndarray
-    ) -> np.ndarray | None:
+    def _extract_band_features(self, psd: np.ndarray, freqs: np.ndarray) -> np.ndarray | None:
         """
         Extract PSD features for 150 frequency bands (16-22 kHz).
 
@@ -265,9 +261,7 @@ class SpectrumAnalyzer:
             return None
         except Exception as e:
             # Unexpected errors - log for investigation
-            logger.error(
-                f"Unexpected error in PSD band extraction: {e}", exc_info=True
-            )
+            logger.error(f"Unexpected error in PSD band extraction: {e}", exc_info=True)
             return None
 
     def _estimate_cutoff_normalized(self, freqs: np.ndarray, psd: np.ndarray) -> float:
@@ -470,9 +464,7 @@ class SpectrumAnalyzer:
             interpolation_score = 0.0
         except Exception as e:
             # Unexpected errors - log for investigation
-            logger.error(
-                f"Unexpected error computing interpolation score: {e}", exc_info=True
-            )
+            logger.error(f"Unexpected error computing interpolation score: {e}", exc_info=True)
             interpolation_score = 0.0
 
         return np.array(
@@ -511,8 +503,8 @@ class SpectrumAnalyzer:
 
         # Band masks
         below_sfb21 = (freqs >= 14000) & (freqs < 16000)  # Just below sfb21
-        sfb21_band = (freqs >= 16000) & (freqs < 19500)   # sfb21 range
-        ultra_band = (freqs >= 19500) & (freqs < 22000)   # Above V0 cutoff
+        sfb21_band = (freqs >= 16000) & (freqs < 19500)  # sfb21 range
+        ultra_band = (freqs >= 19500) & (freqs < 22000)  # Above V0 cutoff
         band_19_20k = (freqs >= 19000) & (freqs < 20000)  # Sub-band for flat_19_20k
 
         # Energy in each band (mean across time and frequency)
@@ -555,14 +547,17 @@ class SpectrumAnalyzer:
         flat_19_20k_frames = band_flatness_per_frame(S, band_19_20k)
         flat_19_20k = float(np.mean(flat_19_20k_frames))
 
-        return np.array([
-            sfb21_ultra_ratio,
-            sfb21_continuity,
-            sfb21_flatness,
-            sfb21_flat_std,
-            sfb21_flat_iqr,
-            flat_19_20k,
-        ], dtype=np.float32)
+        return np.array(
+            [
+                sfb21_ultra_ratio,
+                sfb21_continuity,
+                sfb21_flatness,
+                sfb21_flat_std,
+                sfb21_flat_iqr,
+                flat_19_20k,
+            ],
+            dtype=np.float32,
+        )
 
     def _extract_rolloff_features(self, y: np.ndarray, sr: int) -> np.ndarray:
         """Rolloff curve shape features between 18-21kHz (length 4).
@@ -621,12 +616,15 @@ class SpectrumAnalyzer:
         # ratio_late: 20-21kHz vs 19-20kHz - LOSSLESS higher
         rolloff_ratio_late = float(band3_energy / (band2_energy + 1e-10))
 
-        return np.array([
-            rolloff_slope,
-            rolloff_total_drop,
-            rolloff_ratio_early,
-            rolloff_ratio_late,
-        ], dtype=np.float32)
+        return np.array(
+            [
+                rolloff_slope,
+                rolloff_total_drop,
+                rolloff_ratio_early,
+                rolloff_ratio_late,
+            ],
+            dtype=np.float32,
+        )
 
     def _split_feature_vector(
         self, vector: np.ndarray, metadata: dict
@@ -654,9 +652,7 @@ class SpectrumAnalyzer:
         artifact_feats = (
             vector[temporal_end:artifact_end] if artifact_len else np.zeros(6, dtype=np.float32)
         )
-        sfb21_feats = (
-            vector[artifact_end:sfb21_end] if sfb21_len else np.zeros(6, dtype=np.float32)
-        )
+        sfb21_feats = vector[artifact_end:sfb21_end] if sfb21_len else np.zeros(6, dtype=np.float32)
         rolloff_feats = (
             vector[sfb21_end:rolloff_end] if rolloff_len else np.zeros(4, dtype=np.float32)
         )

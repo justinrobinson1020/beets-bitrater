@@ -2,8 +2,6 @@
 
 import os
 
-import pytest
-
 
 class TestThreadVars:
     """Tests for THREAD_VARS constant."""

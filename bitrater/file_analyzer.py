@@ -5,7 +5,7 @@ from pathlib import Path
 
 from mutagen import File as MutagenFile
 from mutagen.flac import FLAC
-from mutagen.mp3 import MP3
+from mutagen.mp3 import MP3, BitrateMode
 from mutagen.wave import WAVE
 
 from .constants import LOSSLESS_CONTAINERS
@@ -145,15 +145,14 @@ class FileAnalyzer:
 
     def _determine_mp3_encoding_type(self, audio: MP3) -> str:
         """Determine MP3 encoding type (CBR, VBR, or ABR)."""
-        # Check for VBR indicators
         if hasattr(audio.info, "bitrate_mode"):
             mode = audio.info.bitrate_mode
-            if mode == 1:  # VBR
+            if mode == BitrateMode.VBR:
                 return "VBR"
-            elif mode == 2:  # ABR
+            elif mode == BitrateMode.ABR:
                 return "ABR"
 
-        # Default to CBR
+        # Default to CBR (including BitrateMode.CBR and BitrateMode.UNKNOWN)
         return "CBR"
 
     def _get_encoder(self, audio: MP3) -> str:

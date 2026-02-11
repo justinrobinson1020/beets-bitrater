@@ -171,7 +171,9 @@ class QualityClassifier:
         # Log model info
         logger.info("Trained model info:")
         logger.info(f"  Support vectors: {self.classifier.n_support_.sum()}")
-        logger.info(f"  Support vectors per class: {dict(zip([self.classes[c][0] for c in unique], self.classifier.n_support_, strict=True))}")
+        logger.info(
+            f"  Support vectors per class: {dict(zip([self.classes[c][0] for c in unique], self.classifier.n_support_, strict=True))}"
+        )
 
         # Total training time
         total_time = time.time() - train_start
@@ -225,9 +227,7 @@ class QualityClassifier:
             probabilities=probabilities,
         )
 
-    def predict_batch(
-        self, features_list: list[SpectralFeatures]
-    ) -> list[ClassifierPrediction]:
+    def predict_batch(self, features_list: list[SpectralFeatures]) -> list[ClassifierPrediction]:
         """
         Predict quality class for multiple files.
 
