@@ -56,12 +56,12 @@ SPECTRAL_PARAMS = {
     "fft_size": 8192,  # FFT window size
 }
 
-# SVM parameters from D'Alessandro & Shi paper (97% accuracy)
+# SVM parameters (poly kernel, optimized via grid search)
 CLASSIFIER_PARAMS = {
     "kernel": "poly",
     "degree": 2,  # d=2 from paper - CRITICAL
-    "gamma": 1,  # γ=1 from paper
-    "C": 1,  # C=1 from paper
+    "gamma": 0.01,  # Optimized via grid search (was 1)
+    "C": 100,  # Optimized via grid search (was 1)
     "coef0": 1,  # Standard for polynomial kernel
     "probability": True,  # For confidence scores
     "cache_size": 1000,
@@ -91,3 +91,58 @@ MINIMUM_DURATION = 0.1  # At least 100ms of audio
 # Warning thresholds
 LOW_CONFIDENCE_THRESHOLD = 0.7  # Warn if confidence below this
 BITRATE_MISMATCH_FACTOR = 1.5  # Warn if stated bitrate > detected * this factor
+
+# ── Feature names and masking ──────────────────────────────────────────────
+# Ordered list of all 173 features in SpectralFeatures.as_vector() output.
+FEATURE_NAMES: list[str] = (
+    [f"psd_{i:03d}" for i in range(150)]
+    + [
+        "cutoff_primary",
+        "cutoff_num_transitions",
+        "cutoff_first_freq",
+        "cutoff_first_mag",
+        "cutoff_gradient",
+        "cutoff_transition_gap",
+    ]
+    + [
+        "sfb21_ultra_ratio",
+        "sfb21_continuity",
+        "sfb21_flatness",
+        "sfb21_flat_std",
+        "sfb21_flat_iqr",
+        "sfb21_flat_19_20k",
+    ]
+    + [
+        "rolloff_slope",
+        "rolloff_total_drop",
+        "rolloff_ratio_early",
+        "rolloff_ratio_late",
+    ]
+    + [
+        "f128_psd_ratio_low_high",
+        "f128_psd_ratio_mid_ultra",
+        "f128_energy_above_17k",
+        "f128_energy_above_19k",
+        "v2_energy_ratio_19k",
+        "v2_sfb21_peak_ratio",
+    ]
+    + ["is_vbr"]
+)
+
+# Features to DROP from the 173-feature vector before SVM training/prediction.
+# Based on feature importance analysis (RF importance < 0.001 threshold):
+#   - PSD 0-18: below all encoder cutoffs (16.0-16.7 kHz)
+#   - PSD 19-24, 51, 53: low cross-class variance
+#   - PSD 134, 142-149: above useful range (21.3-22 kHz noise floor)
+#   - cutoff_first_mag, cutoff_transition_gap: redundant with other cutoff features
+_FEATURES_TO_DROP: set[str] = (
+    {f"psd_{i:03d}" for i in range(19)}  # PSD 0-18
+    | {f"psd_{i:03d}" for i in range(19, 25)}  # PSD 19-24
+    | {"psd_051", "psd_053"}  # low-variance mid-range
+    | {"psd_134"}  # above useful range
+    | {f"psd_{i:03d}" for i in range(142, 150)}  # PSD 142-149
+    | {"cutoff_first_mag", "cutoff_transition_gap"}
+)
+
+# Set of feature names to KEEP (complement of drop set).
+FEATURE_MASK_NAMES: set[str] = set(FEATURE_NAMES) - _FEATURES_TO_DROP

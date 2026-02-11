@@ -248,24 +248,28 @@ class TestSFB21AndRolloffFeatures:
         assert features.rolloff_features.shape == (4,)
 
     def test_as_vector_includes_sfb21_and_rolloff(self) -> None:
-        """as_vector should include sfb21 and rolloff features."""
+        """as_vector should include sfb21, rolloff, and discriminative features."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
             sfb21_features=np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float32),
             rolloff_features=np.array([7.0, 8.0, 9.0, 10.0], dtype=np.float32),
+            discriminative_features=np.array([11.0, 12.0, 13.0, 14.0, 15.0, 16.0], dtype=np.float32),
         )
         vector = features.as_vector()
-        # 150 + 6 + 8 + 6 + 6 + 4 + 1 = 181 features
-        assert vector.shape == (181,)
-        # SFB21 features at position 170-175 (after artifact)
-        assert vector[170] == 1.0
-        assert vector[175] == 6.0
-        # Rolloff features at position 176-179
-        assert vector[176] == 7.0
-        assert vector[179] == 10.0
+        # 150 PSD + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative + 1 is_vbr = 173
+        assert vector.shape == (173,)
+        # SFB21 features at position 156-161 (after cutoff)
+        assert vector[156] == 1.0
+        assert vector[161] == 6.0
+        # Rolloff features at position 162-165
+        assert vector[162] == 7.0
+        assert vector[165] == 10.0
+        # Discriminative features at position 166-171
+        assert vector[166] == 11.0
+        assert vector[171] == 16.0
         # is_vbr at the end
-        assert vector[180] == 0.0
+        assert vector[172] == 0.0
 
 
 class TestExtractSFB21Features:
@@ -278,15 +282,20 @@ class TestExtractSFB21Features:
 
     def test_returns_six_features(self, analyzer) -> None:
         """Should return exactly 6 features."""
+        import librosa
+
         y = np.random.rand(44100).astype(np.float32)
-        result = analyzer._extract_sfb21_features(y, 44100)
+        S_mag = np.abs(librosa.stft(y, n_fft=SPECTRAL_PARAMS["fft_size"]))
+        freqs = librosa.fft_frequencies(sr=44100, n_fft=SPECTRAL_PARAMS["fft_size"])
+        result = analyzer._extract_sfb21_features(S_mag, freqs)
         assert result.shape == (6,)
         assert result.dtype == np.float32
 
     def test_handles_empty_audio(self, analyzer) -> None:
-        """Should return zeros for empty audio."""
-        y = np.array([], dtype=np.float32)
-        result = analyzer._extract_sfb21_features(y, 44100)
+        """Should return zeros for empty STFT."""
+        S_mag = np.array([], dtype=np.float32)
+        freqs = np.array([], dtype=np.float32)
+        result = analyzer._extract_sfb21_features(S_mag, freqs)
         assert result.shape == (6,)
         assert np.allclose(result, 0.0)
 
@@ -301,15 +310,20 @@ class TestExtractRolloffFeatures:
 
     def test_returns_four_features(self, analyzer) -> None:
         """Should return exactly 4 features."""
+        import librosa
+
         y = np.random.rand(44100).astype(np.float32)
-        result = analyzer._extract_rolloff_features(y, 44100)
+        S_power = np.abs(librosa.stft(y, n_fft=SPECTRAL_PARAMS["fft_size"])) ** 2
+        freqs = librosa.fft_frequencies(sr=44100, n_fft=SPECTRAL_PARAMS["fft_size"])
+        result = analyzer._extract_rolloff_features(S_power, freqs)
         assert result.shape == (4,)
         assert result.dtype == np.float32
 
     def test_handles_empty_audio(self, analyzer) -> None:
-        """Should return zeros for empty audio."""
-        y = np.array([], dtype=np.float32)
-        result = analyzer._extract_rolloff_features(y, 44100)
+        """Should return zeros for empty STFT."""
+        S_power = np.array([], dtype=np.float32)
+        freqs = np.array([], dtype=np.float32)
+        result = analyzer._extract_rolloff_features(S_power, freqs)
         assert result.shape == (4,)
         assert np.allclose(result, 0.0)
 

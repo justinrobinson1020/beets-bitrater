@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,6 +53,22 @@ def _init_worker() -> None:
     numba.set_num_threads(1)
 
     _worker_initialized = True
+
+
+@contextmanager
+def _tqdm_joblib(tqdm_bar):
+    """Context manager to patch joblib to update a tqdm progress bar on task completion."""
+    original_print_progress = Parallel.print_progress
+
+    def _patched_print_progress(self):
+        tqdm_bar.n = self.n_completed_tasks
+        tqdm_bar.refresh()
+
+    Parallel.print_progress = _patched_print_progress
+    try:
+        yield
+    finally:
+        Parallel.print_progress = original_print_progress
 
 
 def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | None]:
@@ -469,83 +486,103 @@ class AudioQualityAnalyzer:
         logger.info(f"  Test set: {len(test_paths)} files ({len(test_paths)/len(paths)*100:.1f}%)")
         logger.info("=" * 60)
 
-        # Train on training set
-        train_data = dict(zip(train_paths, train_labels, strict=True))
-        if use_parallel is None:
-            use_parallel = num_workers != 1
-
-        if use_parallel:
-            self.train_parallel(train_data, num_workers=num_workers)
-        else:
-            self.train(train_data)
-
-        # Evaluate on test set - parallel feature extraction like training
-        y_true = []
-        y_pred = []
-        failed_extractions = []
-        test_features: list[tuple[str, int, SpectralFeatures]] = []
-
-        # Determine workers (use conservative default to prevent system overload)
+        # Extract features for ALL files once (train + test share the cache)
         if num_workers is None:
             workers = self._get_default_workers()
         else:
             workers = num_workers
 
+        if use_parallel is None:
+            use_parallel = workers != 1
+
+        all_paths = train_paths + test_paths
+
         logger.info("=" * 60)
-        logger.info("VALIDATION: PARALLEL FEATURE EXTRACTION (joblib.Parallel)")
-        logger.info(f"  Total files: {len(test_paths)}")
+        logger.info("PARALLEL FEATURE EXTRACTION (joblib.Parallel)")
+        logger.info(f"  Total files: {len(all_paths)}")
         logger.info(f"  Workers: {workers}")
         logger.info("=" * 60)
 
         extraction_start = time.time()
 
-        # Parallel feature extraction for test files using joblib
-        # inner_max_num_threads=1 prevents thread explosion in workers
-        with parallel_config(backend="loky", inner_max_num_threads=1):
-            results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
-                delayed(_extract_features_worker)(path)
-                for path in tqdm(test_paths, desc="Extracting test features", unit="files")
-            )
+        if use_parallel:
+            with tqdm(total=len(all_paths), desc="Extracting features", unit="files") as pbar:
+                with _tqdm_joblib(pbar):
+                    with parallel_config(backend="loky", inner_max_num_threads=1):
+                        results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                            delayed(_extract_features_worker)(path)
+                            for path in all_paths
+                        )
+        else:
+            results = []
+            for path in all_paths:
+                results.append(_extract_features_worker(path))
 
-        # Process results
-        for (file_path, features), true_label in zip(results, test_labels, strict=True):
-            if features is not None:
-                test_features.append((file_path, true_label, features))
-            else:
-                failed_extractions.append(file_path)
+        # Index results by path for fast lookup
+        features_by_path: dict[str, SpectralFeatures | None] = {}
+        for file_path, features in results:
+            features_by_path[file_path] = features
 
         extraction_time = time.time() - extraction_start
+        success_count = sum(1 for f in features_by_path.values() if f is not None)
 
         logger.info("=" * 60)
         logger.info("FEATURE EXTRACTION COMPLETE")
         logger.info(f"  Duration: {extraction_time:.2f}s")
         logger.info(
-            f"  Success rate: {len(test_features)/len(test_paths)*100:.1f}% ({len(test_features)}/{len(test_paths)})"
+            f"  Success rate: {success_count/len(all_paths)*100:.1f}% ({success_count}/{len(all_paths)})"
         )
-        logger.info(f"  Throughput: {len(test_features)/extraction_time:.1f} files/s")
+        logger.info(f"  Throughput: {success_count/extraction_time:.1f} files/s")
         logger.info("=" * 60)
 
-        # Run predictions on extracted features
+        # Split extracted features into train/test
+        train_features: list[SpectralFeatures] = []
+        train_labels_clean: list[int] = []
+        for path, label in zip(train_paths, train_labels, strict=True):
+            feat = features_by_path.get(path)
+            if feat is not None:
+                train_features.append(feat)
+                train_labels_clean.append(label)
+
+        # Train classifier
         logger.info("=" * 60)
-        logger.info(f"VALIDATION: Running predictions on {len(test_features)} samples...")
+        logger.info("TRAINING STARTED")
+        logger.info("=" * 60)
+        self.classifier.train(train_features, train_labels_clean)
+
+        # Predict on test set
+        y_true = []
+        y_pred = []
+        failed_extractions = []
+
+        logger.info("=" * 60)
+        logger.info(f"VALIDATION: Running predictions on test set...")
         logger.info("=" * 60)
 
         predict_start = time.time()
+        test_count = 0
 
         with tqdm(
-            total=len(test_features),
+            total=len(test_paths),
             desc="Predicting",
             unit="files",
             dynamic_ncols=True,
         ) as pbar:
-            for _file_path, true_label, features in test_features:
-                prediction = self.classifier.predict(features)
+            for path, true_label in zip(test_paths, test_labels, strict=True):
+                feat = features_by_path.get(path)
+                if feat is None:
+                    failed_extractions.append(path)
+                    pbar.update(1)
+                    continue
+
+                prediction = self.classifier.predict(feat)
                 pred_label = CLASS_LABELS[prediction.format_type]
                 y_true.append(true_label)
                 y_pred.append(pred_label)
+                test_count += 1
 
                 elapsed = time.time() - predict_start
-                rate = len(y_true) / elapsed if elapsed > 0 else 0
+                rate = test_count / elapsed if elapsed > 0 else 0
                 pbar.update(1)
                 pbar.set_postfix({"rate": f"{rate:.1f} files/s"})
 
@@ -629,11 +666,200 @@ class AudioQualityAnalyzer:
             "test_pct": len(test_paths) / len(training_data),
         }
 
+
+    def evaluate_from_directory(
+        self,
+        training_dir: Path,
+        num_workers: int | None = None,
+    ) -> dict:
+        """
+        Evaluate a pre-trained model on labeled data from a directory.
+
+        Unlike validate_from_directory, this does NOT do a train/test split.
+        It evaluates the already-loaded model on the full dataset.
+
+        Args:
+            training_dir: Path to labeled data directory
+            num_workers: Optional number of workers for parallel feature extraction
+
+        Returns:
+            Dictionary with evaluation metrics (accuracy, per_class, etc.)
+        """
+        import time
+
+        from sklearn.metrics import (
+            accuracy_score,
+            precision_recall_fscore_support,
+        )
+
+        if not self.classifier.trained:
+            raise RuntimeError("No model loaded. Use load_model() first.")
+
+        training_data = self._collect_training_data(Path(training_dir))
+
+        if num_workers is None:
+            workers = self._get_default_workers()
+        else:
+            workers = num_workers
+
+        file_paths = list(training_data.keys())
+
+        logger.info("=" * 60)
+        logger.info("MODEL EVALUATION: PARALLEL FEATURE EXTRACTION")
+        logger.info(f"  Total files: {len(file_paths)}")
+        logger.info(f"  Workers: {workers}")
+        logger.info("=" * 60)
+
+        extraction_start = time.time()
+
+        with tqdm(total=len(file_paths), desc="Extracting features", unit="files") as pbar:
+            with _tqdm_joblib(pbar):
+                with parallel_config(backend="loky", inner_max_num_threads=1):
+                    results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                        delayed(_extract_features_worker)(path)
+                        for path in file_paths
+                    )
+
+        extraction_time = time.time() - extraction_start
+
+        # Run predictions
+        y_true = []
+        y_pred = []
+
+        logger.info(f"Feature extraction: {extraction_time:.1f}s")
+        logger.info(f"Running predictions on {len(results)} samples...")
+
+        predict_start = time.time()
+        for (file_path, features), true_label in zip(
+            results, [training_data[p] for p in file_paths], strict=True
+        ):
+            if features is None:
+                continue
+            prediction = self.classifier.predict(features)
+            pred_label = CLASS_LABELS[prediction.format_type]
+            y_true.append(true_label)
+            y_pred.append(pred_label)
+
+        predict_time = time.time() - predict_start
+        logger.info(f"Predictions: {predict_time:.1f}s, {len(y_true)} samples evaluated")
+
+        # Calculate metrics
+        accuracy = accuracy_score(y_true, y_pred)
+        precision, recall, f1, support = precision_recall_fscore_support(
+            y_true, y_pred, labels=list(range(7)), zero_division=0
+        )
+
+        class_names = ["128", "V2", "192", "V0", "256", "320", "LOSSLESS"]
+        per_class = {}
+        for i, cls in enumerate(class_names):
+            per_class[cls] = {
+                "precision": precision[i],
+                "recall": recall[i],
+                "f1": f1[i],
+                "support": int(support[i]),
+            }
+
+        return {
+            "accuracy": accuracy,
+            "per_class": per_class,
+            "class_names": class_names,
+            "total_samples": len(y_true),
+        }
+
+    def grid_search_from_directory(
+        self,
+        training_dir: Path,
+        param_grid: dict | None = None,
+        cv: int = 5,
+        n_jobs: int = -1,
+        num_workers: int | None = None,
+        save_path: Path | None = None,
+        progress_path: Path | None = None,
+        verbose: bool = False,
+    ) -> dict:
+        """
+        Run grid search over SVM hyperparameters using training data from a directory.
+
+        Uses parallel feature extraction, then passes the full dataset to
+        classifier.grid_search() (CV handles holdout internally).
+
+        Args:
+            training_dir: Path to training data directory
+            param_grid: Parameter grid for GridSearchCV
+            cv: Number of cross-validation folds
+            n_jobs: Number of parallel jobs for grid search
+            num_workers: Workers for feature extraction
+            save_path: Optional path to save the best model
+            progress_path: Optional path for incremental progress save/resume
+
+        Returns:
+            Dict with best_params, best_score, elapsed_seconds, all_results
+        """
+        import time
+
+        training_data = self._collect_training_data(Path(training_dir))
+
+        # Determine workers
+        if num_workers is None:
+            workers = self._get_default_workers()
+        else:
+            workers = num_workers
+
+        logger.info("=" * 60)
+        logger.info("GRID SEARCH: PARALLEL FEATURE EXTRACTION")
+        logger.info(f"  Total files: {len(training_data)}")
+        logger.info(f"  Workers: {workers}")
+        logger.info("=" * 60)
+
+        extraction_start = time.time()
+
+        file_paths = list(training_data.keys())
+        with tqdm(total=len(file_paths), desc="Extracting features", unit="files") as pbar:
+            with _tqdm_joblib(pbar):
+                with parallel_config(backend="loky", inner_max_num_threads=1):
+                    results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                        delayed(_extract_features_worker)(file_path)
+                        for file_path in file_paths
+                    )
+
+        features_list: list[SpectralFeatures] = []
+        labels_list: list[int] = []
+        failed_files: list[str] = []
+
+        for file_path, features in results:
+            label = training_data[file_path]
+            if features is not None:
+                features_list.append(features)
+                labels_list.append(label)
+            else:
+                failed_files.append(file_path)
+
+        extraction_time = time.time() - extraction_start
+
+        if not features_list:
+            raise ValueError("No valid training samples extracted")
+
+        logger.info(f"Feature extraction: {extraction_time:.1f}s, {len(features_list)} samples")
+
+        return self.classifier.grid_search(
+            features_list,
+            labels_list,
+            param_grid=param_grid,
+            cv=cv,
+            n_jobs=n_jobs,
+            save_path=save_path,
+            progress_path=progress_path,
+            verbose=verbose,
+        )
+
     def _collect_training_data(self, training_dir: Path) -> dict[str, int]:
         """Scan directory structure and return file-path-to-label mapping.
 
-        Supports two directory layouts (nested and flat). Used by both
-        train_from_directory and validate_from_directory.
+        Supports three directory layouts:
+
+        1. Nested: training_dir/encoded/lossy/{128,v2,...}/ + training_dir/lossless/
+        2. Semi-nested: training_dir/lossy/{128,v2,...}/ + training_dir/lossless/
+        3. Flat: training_dir/{128,v2,...,lossless}/
 
         Args:
             training_dir: Root directory containing training data
@@ -663,10 +889,15 @@ class AudioQualityAnalyzer:
 
         # Determine which structure we have
         nested_lossy_dir = training_dir / "encoded" / "lossy"
+        semi_nested_lossy_dir = training_dir / "lossy"
         if nested_lossy_dir.exists():
             lossy_base = nested_lossy_dir
             lossless_dir = training_dir / "lossless"
             logger.info("Using nested directory structure (encoded/lossy/...)")
+        elif semi_nested_lossy_dir.exists():
+            lossy_base = semi_nested_lossy_dir
+            lossless_dir = training_dir / "lossless"
+            logger.info("Using semi-nested directory structure (lossy/...)")
         else:
             lossy_base = training_dir
             lossless_dir = training_dir / "lossless"
@@ -799,11 +1030,13 @@ class AudioQualityAnalyzer:
         # Process with joblib.Parallel
         # inner_max_num_threads=1 prevents thread explosion in workers
         file_paths = list(training_data.keys())
-        with parallel_config(backend="loky", inner_max_num_threads=1):
-            results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
-                delayed(_extract_features_worker)(file_path)
-                for file_path in tqdm(file_paths, desc="Extracting features", unit="files")
-            )
+        with tqdm(total=len(file_paths), desc="Extracting features", unit="files") as pbar:
+            with _tqdm_joblib(pbar):
+                with parallel_config(backend="loky", inner_max_num_threads=1):
+                    results = Parallel(n_jobs=workers, batch_size="auto", timeout=300)(
+                        delayed(_extract_features_worker)(file_path)
+                        for file_path in file_paths
+                    )
 
         # Process results
         features_list: list[SpectralFeatures] = []

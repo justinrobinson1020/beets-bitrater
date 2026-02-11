@@ -9,6 +9,7 @@ import pytest
 from bitrater.cli import (
     _setup_logging,
     cmd_analyze,
+    cmd_gridsearch,
     cmd_train,
     cmd_transcode,
     cmd_validate,
@@ -258,6 +259,7 @@ class TestCmdValidate:
             source_dir=str(source_dir),
             test_size=0.2,
             threads=None,
+            model=None,
         )
         cmd_validate(args)
 
@@ -287,6 +289,51 @@ class TestCmdTranscode:
 
         mock_encoder_cls.assert_called_once_with(source_dir, output_dir)
         mock_encoder.process_files.assert_called_once_with(max_workers=4)
+
+
+class TestCmdGridsearch:
+    """Tests for cmd_gridsearch."""
+
+    @patch("bitrater.analyzer.AudioQualityAnalyzer")
+    def test_gridsearch_calls_grid_search_from_directory(self, mock_analyzer_cls, tmp_path, capsys):
+        source_dir = tmp_path / "training"
+        source_dir.mkdir()
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.grid_search_from_directory.return_value = {
+            "best_params": {"C": 10, "gamma": 0.1, "kernel": "poly", "degree": 2},
+            "best_score": 0.985,
+            "elapsed_seconds": 42.0,
+            "all_results": [
+                {"params": {"C": 10, "gamma": 0.1, "kernel": "poly", "degree": 2}, "mean_score": 0.985, "std_score": 0.01, "rank": 1},
+            ],
+        }
+        mock_analyzer_cls.return_value = mock_analyzer
+
+        args = argparse.Namespace(
+            source_dir=str(source_dir),
+            save_model=None,
+            threads=4,
+            cv=5,
+            jobs=-1,
+            param_grid=None,
+            progress=None,
+            verbose=False,
+        )
+        cmd_gridsearch(args)
+
+        mock_analyzer.grid_search_from_directory.assert_called_once()
+        captured = capsys.readouterr()
+        assert "GRID SEARCH RESULTS" in captured.out
+
+    def test_gridsearch_subcommand_parsed(self):
+        with patch(
+            "sys.argv",
+            ["bitrater", "gridsearch", "--source-dir", "/tmp/data"],
+        ):
+            with patch("bitrater.cli.cmd_gridsearch") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
 
 
 class TestMain:

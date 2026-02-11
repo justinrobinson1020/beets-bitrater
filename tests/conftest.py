@@ -37,15 +37,18 @@ def sample_features() -> SpectralFeatures:
     sfb21_features = np.array([0.15, 0.6, 0.3, 0.05, 0.08, 0.25], dtype=np.float32)
     # Realistic 320kbps rolloff: moderate slope, some drop
     rolloff_features = np.array([-0.8, -12.0, 0.7, 0.3], dtype=np.float32)
+    # Realistic 320kbps discriminative: moderate energy, balanced ratios
+    discriminative_features = np.array(
+        [1.5, 2.0, 25.0, 5.0, 0.15, 2.5], dtype=np.float32
+    )
 
     return SpectralFeatures(
         features=features,
         frequency_bands=frequency_bands,
         cutoff_features=np.zeros(6, dtype=np.float32),
-        temporal_features=np.zeros(8, dtype=np.float32),
-        artifact_features=np.zeros(6, dtype=np.float32),
         sfb21_features=sfb21_features,
         rolloff_features=rolloff_features,
+        discriminative_features=discriminative_features,
         is_vbr=0.0,  # Simulating CBR file
     )
 
@@ -70,15 +73,18 @@ def lossless_features() -> SpectralFeatures:
     sfb21_features = np.array([0.6, 0.85, 0.7, 0.02, 0.03, 0.65], dtype=np.float32)
     # Realistic lossless rolloff: shallow slope, minimal drop
     rolloff_features = np.array([-0.2, -3.0, 0.9, 0.8], dtype=np.float32)
+    # Realistic lossless discriminative: high energy, balanced ratios
+    discriminative_features = np.array(
+        [1.2, 1.3, 45.0, 18.0, 0.45, 1.8], dtype=np.float32
+    )
 
     return SpectralFeatures(
         features=features,
         frequency_bands=frequency_bands,
         cutoff_features=np.zeros(6, dtype=np.float32),
-        temporal_features=np.zeros(8, dtype=np.float32),
-        artifact_features=np.zeros(6, dtype=np.float32),
         sfb21_features=sfb21_features,
         rolloff_features=rolloff_features,
+        discriminative_features=discriminative_features,
         is_vbr=0.0,  # Lossless is not VBR
     )
 
@@ -187,15 +193,31 @@ def training_features() -> tuple[list, list]:
             else:  # LOSSLESS
                 rolloff = np.array([-0.2, -3.0, 0.90, 0.80], dtype=np.float32) + noise_r
 
+            # Class-appropriate discriminative features
+            noise_d = rng.random(6).astype(np.float32) * 0.1
+            if class_idx == TrainingClass.CBR_128:
+                discrim = np.array([8.0, 10.0, 5.0, 0.5, 0.02, 3.0], dtype=np.float32) + noise_d
+            elif class_idx == TrainingClass.VBR_V2:
+                discrim = np.array([3.0, 4.0, 18.0, 3.0, 0.08, 2.8], dtype=np.float32) + noise_d
+            elif class_idx == TrainingClass.CBR_192:
+                discrim = np.array([2.5, 3.0, 22.0, 4.0, 0.10, 2.5], dtype=np.float32) + noise_d
+            elif class_idx == TrainingClass.VBR_V0:
+                discrim = np.array([2.0, 2.5, 28.0, 6.0, 0.12, 2.3], dtype=np.float32) + noise_d
+            elif class_idx == TrainingClass.CBR_256:
+                discrim = np.array([1.8, 2.2, 32.0, 8.0, 0.18, 2.2], dtype=np.float32) + noise_d
+            elif class_idx == TrainingClass.CBR_320:
+                discrim = np.array([1.5, 2.0, 35.0, 10.0, 0.20, 2.5], dtype=np.float32) + noise_d
+            else:  # LOSSLESS
+                discrim = np.array([1.2, 1.3, 45.0, 18.0, 0.45, 1.8], dtype=np.float32) + noise_d
+
             features_list.append(
                 SpectralFeatures(
                     features=features,
                     frequency_bands=frequency_bands,
                     cutoff_features=np.zeros(6, dtype=np.float32),
-                    temporal_features=np.zeros(8, dtype=np.float32),
-                    artifact_features=np.zeros(6, dtype=np.float32),
                     sfb21_features=sfb21,
                     rolloff_features=rolloff,
+                    discriminative_features=discrim,
                     is_vbr=is_vbr,
                 )
             )

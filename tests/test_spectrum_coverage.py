@@ -71,63 +71,6 @@ class TestExtractCutoffFeatures:
         np.testing.assert_array_equal(result, np.zeros(6, dtype=np.float32))
 
 
-class TestExtractTemporalFeatures:
-    """Tests for _extract_temporal_features."""
-
-    def test_returns_eight_features(self, analyzer):
-        y = np.random.rand(44100).astype(np.float32)  # 1 second
-        result = analyzer._extract_temporal_features(y, 44100)
-        assert len(result) == 8
-
-    def test_zero_windows(self, analyzer):
-        y = np.random.rand(44100).astype(np.float32)
-        result = analyzer._extract_temporal_features(y, 44100, n_windows=0)
-        np.testing.assert_array_equal(result, np.zeros(8, dtype=np.float32))
-
-    def test_single_window(self, analyzer):
-        y = np.random.rand(44100).astype(np.float32)
-        result = analyzer._extract_temporal_features(y, 44100, n_windows=1)
-        assert len(result) == 8
-
-
-class TestExtractArtifactFeatures:
-    """Tests for _extract_artifact_features."""
-
-    def test_returns_six_features(self, analyzer):
-        freqs = np.linspace(0, 22050, 4097)
-        psd = np.random.rand(4097)
-        cutoff_feats = np.array([0.5, 3, 0.3, 0.1, 0.2, 0.1], dtype=np.float32)
-
-        result = analyzer._extract_artifact_features(psd, freqs, cutoff_feats)
-        assert len(result) == 6
-
-    def test_empty_band_returns_zeros(self, analyzer):
-        freqs = np.linspace(0, 10000, 1000)
-        psd = np.random.rand(1000)
-        cutoff_feats = np.zeros(6, dtype=np.float32)
-
-        result = analyzer._extract_artifact_features(psd, freqs, cutoff_feats)
-        np.testing.assert_array_equal(result, np.zeros(6, dtype=np.float32))
-
-
-class TestSpectralFlatness:
-    """Tests for _spectral_flatness."""
-
-    def test_constant_signal_is_one(self, analyzer):
-        values = np.ones(100) * -10.0  # Constant dB values
-        result = analyzer._spectral_flatness(values)
-        assert abs(result - 1.0) < 0.01
-
-    def test_empty_returns_zero(self, analyzer):
-        result = analyzer._spectral_flatness(np.array([]))
-        assert result == 0.0
-
-    def test_values_with_nan(self, analyzer):
-        values = np.array([1.0, float("nan"), 2.0])
-        result = analyzer._spectral_flatness(values)
-        assert np.isfinite(result)
-
-
 class TestEstimateCutoffNormalized:
     """Tests for _estimate_cutoff_normalized."""
 
@@ -153,37 +96,34 @@ class TestSplitFeatureVector:
         # Create a combined vector
         psd = np.random.rand(150).astype(np.float32)
         cutoff = np.random.rand(6).astype(np.float32)
-        temporal = np.random.rand(8).astype(np.float32)
-        artifact = np.random.rand(6).astype(np.float32)
         sfb21 = np.random.rand(6).astype(np.float32)
         rolloff = np.random.rand(4).astype(np.float32)
+        discriminative = np.random.rand(6).astype(np.float32)
 
-        combined = np.concatenate([psd, cutoff, temporal, artifact, sfb21, rolloff])
+        combined = np.concatenate([psd, cutoff, sfb21, rolloff, discriminative])
         metadata = {
             "n_bands": 150,
             "cutoff_len": 6,
-            "temporal_len": 8,
-            "artifact_len": 6,
             "sfb21_len": 6,
             "rolloff_len": 4,
+            "discriminative_len": 6,
         }
 
         result = analyzer._split_feature_vector(combined, metadata)
-        r_psd, r_cutoff, r_temporal, r_artifact, r_sfb21, r_rolloff = result
+        r_psd, r_cutoff, r_sfb21, r_rolloff, r_discriminative = result
 
         np.testing.assert_array_almost_equal(r_psd, psd)
         np.testing.assert_array_almost_equal(r_cutoff, cutoff)
-        np.testing.assert_array_almost_equal(r_temporal, temporal)
-        np.testing.assert_array_almost_equal(r_artifact, artifact)
         np.testing.assert_array_almost_equal(r_sfb21, sfb21)
         np.testing.assert_array_almost_equal(r_rolloff, rolloff)
+        np.testing.assert_array_almost_equal(r_discriminative, discriminative)
 
     def test_missing_metadata_uses_defaults(self, analyzer):
-        combined = np.random.rand(180).astype(np.float32)
+        combined = np.random.rand(172).astype(np.float32)
         metadata = {"n_bands": 150}
 
         result = analyzer._split_feature_vector(combined, metadata)
-        assert len(result) == 6
+        assert len(result) == 5
 
 
 class TestGetPsd:
@@ -222,20 +162,18 @@ class TestAnalyzeFileWithCache:
         num_bands = SPECTRAL_PARAMS["num_bands"]
         psd = np.random.rand(num_bands).astype(np.float32)
         cutoff = np.random.rand(6).astype(np.float32)
-        temporal = np.random.rand(8).astype(np.float32)
-        artifact = np.random.rand(6).astype(np.float32)
         sfb21 = np.random.rand(6).astype(np.float32)
         rolloff = np.random.rand(4).astype(np.float32)
+        discriminative = np.random.rand(6).astype(np.float32)
 
-        combined = np.concatenate([psd, cutoff, temporal, artifact, sfb21, rolloff])
+        combined = np.concatenate([psd, cutoff, sfb21, rolloff, discriminative])
         metadata = {
             "n_bands": num_bands,
-            "approach": "encoder_agnostic_v8",
+            "approach": "encoder_agnostic_v11",
             "cutoff_len": 6,
-            "temporal_len": 8,
-            "artifact_len": 6,
             "sfb21_len": 6,
             "rolloff_len": 4,
+            "discriminative_len": 6,
             "band_frequencies": analyzer._band_frequencies,
         }
 
@@ -253,7 +191,7 @@ class TestAnalyzeFileWithCache:
     def test_cache_miss_wrong_approach(self, analyzer):
         """Cache with different approach version should be treated as miss."""
         num_bands = SPECTRAL_PARAMS["num_bands"]
-        combined = np.random.rand(num_bands + 30).astype(np.float32)
+        combined = np.random.rand(num_bands + 22).astype(np.float32)
         metadata = {
             "n_bands": num_bands,
             "approach": "old_approach_v1",  # Wrong approach

@@ -80,24 +80,40 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
-    """Validate classifier accuracy with train/test split."""
+    """Validate classifier accuracy with train/test split or pre-trained model."""
     from bitrater.analyzer import AudioQualityAnalyzer
 
     analyzer = AudioQualityAnalyzer()
     source_dir = Path(args.source_dir)
 
-    logger.info(f"Validating with data from {source_dir}...")
-    metrics = analyzer.validate_from_directory(
-        source_dir, test_size=args.test_size, num_workers=args.threads
-    )
+    if args.model:
+        model_path = Path(args.model)
+        logger.info(f"Loading model from {model_path}...")
+        analyzer.load_model(model_path)
+        logger.info(f"Evaluating model on data from {source_dir}...")
+        metrics = analyzer.evaluate_from_directory(
+            source_dir, num_workers=args.threads
+        )
 
-    print(f"\n{'=' * 60}")
-    print("MODEL VALIDATION RESULTS")
-    print(f"{'=' * 60}")
-    print(f"\nDataset: {metrics['total_samples']} samples")
-    print(f"Training set: {metrics['train_samples']} ({metrics['train_pct']:.0%})")
-    print(f"Test set: {metrics['test_samples']} ({metrics['test_pct']:.0%})")
-    print(f"\nOVERALL ACCURACY: {metrics['accuracy']:.1%}")
+        print(f"\n{'=' * 60}")
+        print("MODEL EVALUATION RESULTS")
+        print(f"{'=' * 60}")
+        print(f"\nModel: {model_path}")
+        print(f"Dataset: {metrics['total_samples']} samples (100% test)")
+        print(f"\nOVERALL ACCURACY: {metrics['accuracy']:.1%}")
+    else:
+        logger.info(f"Validating with data from {source_dir}...")
+        metrics = analyzer.validate_from_directory(
+            source_dir, test_size=args.test_size, num_workers=args.threads
+        )
+
+        print(f"\n{'=' * 60}")
+        print("MODEL VALIDATION RESULTS")
+        print(f"{'=' * 60}")
+        print(f"\nDataset: {metrics['total_samples']} samples")
+        print(f"Training set: {metrics['train_samples']} ({metrics['train_pct']:.0%})")
+        print(f"Test set: {metrics['test_samples']} ({metrics['test_pct']:.0%})")
+        print(f"\nOVERALL ACCURACY: {metrics['accuracy']:.1%}")
 
     print(f"\n{'Class':<12} {'Precision':>10} {'Recall':>10} {'F1-Score':>10} {'Support':>10}")
     print("-" * 60)
@@ -109,6 +125,65 @@ def cmd_validate(args: argparse.Namespace) -> None:
             f"{cm['f1']:>10.1%} "
             f"{cm['support']:>10}"
         )
+
+
+def cmd_gridsearch(args: argparse.Namespace) -> None:
+    """Run grid search for optimal SVM hyperparameters."""
+    import json as json_module
+
+    from bitrater.analyzer import AudioQualityAnalyzer
+
+    analyzer = AudioQualityAnalyzer()
+    source_dir = Path(args.source_dir)
+    save_path = Path(args.save_model) if args.save_model else None
+
+    # Parse param_grid from JSON string if provided
+    param_grid = None
+    if args.param_grid:
+        param_grid = json_module.loads(args.param_grid)
+
+    logger.info(f"Running grid search with data from {source_dir}...")
+    logger.info("Phase 1: Feature extraction (parallel)")
+    logger.info("Phase 2: Grid search CV (sklearn verbose output below)")
+    progress_path = Path(args.progress) if args.progress else None
+
+    results = analyzer.grid_search_from_directory(
+        source_dir,
+        param_grid=param_grid,
+        cv=args.cv,
+        n_jobs=args.jobs,
+        num_workers=args.threads,
+        save_path=save_path,
+        progress_path=progress_path,
+        verbose=args.verbose,
+    )
+
+    print(f"\n{'=' * 60}")
+    print("GRID SEARCH RESULTS")
+    print(f"{'=' * 60}")
+    print(f"\nBest score: {results['best_score']:.4f}")
+    print(f"Best params: {results['best_params']}")
+    print(f"Time: {results['elapsed_seconds']:.1f}s")
+
+    has_timing = any("elapsed" in r for r in results["all_results"][:1])
+    if has_timing:
+        print(f"\n{'Rank':<6} {'Score':>8} {'Std':>8} {'Time':>7}  Params")
+    else:
+        print(f"\n{'Rank':<6} {'Score':>8} {'Std':>8}  Params")
+    print("-" * 60)
+    for r in results["all_results"][:20]:  # Top 20
+        if has_timing:
+            print(
+                f"{r['rank']:<6} {r['mean_score']:>8.4f} {r.get('std_score', 0):>8.4f}"
+                f" {r.get('elapsed', 0):>6.1f}s  {r['params']}"
+            )
+        else:
+            print(
+                f"{r['rank']:<6} {r['mean_score']:>8.4f} {r.get('std_score', 0):>8.4f}  {r['params']}"
+            )
+
+    if save_path:
+        print(f"\nBest model saved to {save_path}")
 
 
 def cmd_transcode(args: argparse.Namespace) -> None:
@@ -151,6 +226,22 @@ def main() -> None:
         "--test-size", type=float, default=0.2, help="fraction for test set (default: 0.2)"
     )
     p_validate.add_argument("--threads", type=int, default=None, help="number of workers")
+    p_validate.add_argument("--model", help="path to trained model to evaluate (skips train/test split)")
+
+    # gridsearch
+    p_gridsearch = subparsers.add_parser("gridsearch", help="grid search for optimal SVM parameters")
+    p_gridsearch.add_argument(
+        "--source-dir", required=True, help="directory with labeled training data"
+    )
+    p_gridsearch.add_argument("--save-model", help="path to save best model")
+    p_gridsearch.add_argument("--threads", type=int, default=None, help="workers for extraction")
+    p_gridsearch.add_argument("--cv", type=int, default=5, help="cross-validation folds (default: 5)")
+    p_gridsearch.add_argument("--jobs", type=int, default=-1, help="parallel jobs for CV (default: -1)")
+    p_gridsearch.add_argument("--param-grid", type=str, default=None, help="JSON param grid string")
+    p_gridsearch.add_argument(
+        "--progress", type=str, default=None,
+        help="JSON file for incremental progress save/resume",
+    )
 
     # transcode
     p_transcode = subparsers.add_parser(
@@ -169,6 +260,7 @@ def main() -> None:
         "analyze": cmd_analyze,
         "train": cmd_train,
         "validate": cmd_validate,
+        "gridsearch": cmd_gridsearch,
         "transcode": cmd_transcode,
     }
     commands[args.command](args)

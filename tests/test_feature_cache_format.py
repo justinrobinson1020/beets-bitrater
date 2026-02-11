@@ -13,17 +13,16 @@ class TestFeatureCacheNoPickle:
     def test_save_and_get_roundtrip(self, tmp_path) -> None:
         """Features and metadata should survive a save/get roundtrip."""
         cache = FeatureCache(tmp_path / "cache")
-        features = np.random.rand(181).astype(np.float32)
+        features = np.random.rand(173).astype(np.float32)
         metadata = {
             "n_bands": 150,
-            "approach": "encoder_agnostic_v8",
+            "approach": "encoder_agnostic_v11",
             "sample_rate": 44100,
             "creation_date": "2026-01-01T00:00:00",
             "cutoff_len": 6,
-            "temporal_len": 8,
-            "artifact_len": 6,
             "sfb21_len": 6,
             "rolloff_len": 4,
+            "discriminative_len": 8,
             "band_frequencies": [(16000.0, 16040.0)] * 150,
         }
 
@@ -41,13 +40,13 @@ class TestFeatureCacheNoPickle:
         loaded_features, loaded_metadata = result
         np.testing.assert_array_almost_equal(loaded_features, features, decimal=5)
         assert loaded_metadata["n_bands"] == 150
-        assert loaded_metadata["approach"] == "encoder_agnostic_v8"
+        assert loaded_metadata["approach"] == "encoder_agnostic_v11"
 
     def test_saved_npz_loads_without_allow_pickle(self, tmp_path) -> None:
         """Saved cache file should be loadable with allow_pickle=False."""
         cache = FeatureCache(tmp_path / "cache")
-        features = np.random.rand(181).astype(np.float32)
-        metadata = {"n_bands": 150, "approach": "encoder_agnostic_v8"}
+        features = np.random.rand(173).astype(np.float32)
+        metadata = {"n_bands": 150, "approach": "encoder_agnostic_v11"}
 
         audio_file = tmp_path / "test.mp3"
         audio_file.write_bytes(b"fake audio data")
@@ -67,8 +66,8 @@ class TestFeatureCacheNoPickle:
     def test_metadata_stored_as_json_bytes(self, tmp_path) -> None:
         """Metadata should be encoded as JSON bytes, not pickled objects."""
         cache = FeatureCache(tmp_path / "cache")
-        features = np.random.rand(181).astype(np.float32)
-        metadata = {"n_bands": 150, "approach": "encoder_agnostic_v8"}
+        features = np.random.rand(173).astype(np.float32)
+        metadata = {"n_bands": 150, "approach": "encoder_agnostic_v11"}
 
         audio_file = tmp_path / "test.mp3"
         audio_file.write_bytes(b"fake audio data")
@@ -83,7 +82,7 @@ class TestFeatureCacheNoPickle:
             json_bytes = data["metadata_json"].tobytes()
             loaded = json.loads(json_bytes.decode("utf-8"))
             assert loaded["n_bands"] == 150
-            assert loaded["approach"] == "encoder_agnostic_v8"
+            assert loaded["approach"] == "encoder_agnostic_v11"
 
     def test_legacy_format_returns_none(self, tmp_path) -> None:
         """Old pickled format should return None (force re-cache)."""
@@ -96,7 +95,7 @@ class TestFeatureCacheNoPickle:
         file_hash = cache._get_file_key(audio_file)
         cache_path = cache._get_cache_path(file_hash)
 
-        features = np.random.rand(181).astype(np.float32)
+        features = np.random.rand(173).astype(np.float32)
         metadata = {"n_bands": 150}
         metadata_arr = np.array(metadata, dtype=object)
         np.savez(cache_path, features=features, metadata=metadata_arr)

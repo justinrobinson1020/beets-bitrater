@@ -4,12 +4,18 @@ Based on D'Alessandro & Shi paper methodology, extended for lossless detection.
 """
 
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 
 import librosa
 import numpy as np
 from scipy import signal, stats
+
+# Suppress harmless scipy/librosa warnings about FFT window size exceeding
+# short audio segments. The libraries auto-adapt the window size.
+warnings.filterwarnings("ignore", message="nperseg.*is greater than input length", module="scipy")
+warnings.filterwarnings("ignore", message="n_fft=.*is too large for input signal", module="librosa")
 
 from .constants import MINIMUM_DURATION, MINIMUM_SAMPLE_RATE, SPECTRAL_PARAMS
 from .feature_cache import FeatureCache
@@ -94,24 +100,22 @@ class SpectrumAnalyzer:
                 # Validate cached features match current config
                 if (
                     metadata.get("n_bands") == self.num_bands
-                    and metadata.get("approach") == "encoder_agnostic_v8"
+                    and metadata.get("approach") == "encoder_agnostic_v11"
                 ):
                     (
                         psd_bands,
                         cutoff_feats,
-                        temporal_feats,
-                        artifact_feats,
                         sfb21_feats,
                         rolloff_feats,
+                        discriminative_feats,
                     ) = self._split_feature_vector(features, metadata)
                     return SpectralFeatures(
                         features=psd_bands,
                         frequency_bands=metadata.get("band_frequencies", self._band_frequencies),
                         cutoff_features=cutoff_feats,
-                        temporal_features=temporal_feats,
-                        artifact_features=artifact_feats,
                         sfb21_features=sfb21_feats,
                         rolloff_features=rolloff_feats,
+                        discriminative_features=discriminative_feats,
                         is_vbr=is_vbr,
                     )
                 # Cache miss due to config change - recompute
@@ -123,11 +127,15 @@ class SpectrumAnalyzer:
                 logger.error(f"Invalid audio file: {file_path}")
                 return None
 
-            # Compute power spectral density using Welch's method
-            # This matches the paper's approach of analyzing the entire song
-            freqs, psd = signal.welch(
-                y, sr, nperseg=self.fft_size, window="hann", detrend="constant"
-            )
+            # Single STFT for all feature extraction (n_fft=8192 for high resolution)
+            S_complex = librosa.stft(y, n_fft=self.fft_size)
+            S_mag = np.abs(S_complex)
+            S_power = S_mag ** 2
+            stft_freqs = librosa.fft_frequencies(sr=sr, n_fft=self.fft_size)
+
+            # Derive Welch-like PSD from STFT (mean power across time frames)
+            psd = np.mean(S_power, axis=1)
+            freqs = stft_freqs
 
             # Cache PSD for subsequent get_psd() call (avoids double-load)
             self._last_psd_path = file_path
@@ -138,22 +146,22 @@ class SpectrumAnalyzer:
             if band_features is None:
                 return None
 
-            # Extract encoder-agnostic extras
+            # Extract encoder-agnostic extras (reuse STFT — no additional spectral calls)
             cutoff_features = self._extract_cutoff_features(psd, freqs)
-            temporal_features = self._extract_temporal_features(y, sr)
-            artifact_features = self._extract_artifact_features(psd, freqs, cutoff_features)
-            sfb21_features = self._extract_sfb21_features(y, sr)
-            rolloff_features = self._extract_rolloff_features(y, sr)
+            sfb21_features = self._extract_sfb21_features(S_mag, stft_freqs)
+            rolloff_features = self._extract_rolloff_features(S_power, stft_freqs)
+            discriminative_features = self._extract_discriminative_features(
+                band_features, sfb21_features
+            )
 
             # Flatten for caching (exclude is_vbr because it comes from metadata)
             combined_features = np.concatenate(
                 [
                     band_features.astype(np.float32),
                     cutoff_features.astype(np.float32),
-                    temporal_features.astype(np.float32),
-                    artifact_features.astype(np.float32),
                     sfb21_features.astype(np.float32),
                     rolloff_features.astype(np.float32),
+                    discriminative_features.astype(np.float32),
                 ]
             )
 
@@ -163,12 +171,11 @@ class SpectrumAnalyzer:
                 "n_bands": self.num_bands,
                 "band_frequencies": self._band_frequencies,
                 "creation_date": datetime.now().isoformat(),
-                "approach": "encoder_agnostic_v8",
+                "approach": "encoder_agnostic_v11",
                 "cutoff_len": len(cutoff_features),
-                "temporal_len": len(temporal_features),
-                "artifact_len": len(artifact_features),
                 "sfb21_len": len(sfb21_features),
                 "rolloff_len": len(rolloff_features),
+                "discriminative_len": len(discriminative_features),
             }
 
             # Cache the features
@@ -178,10 +185,9 @@ class SpectrumAnalyzer:
                 features=band_features,
                 frequency_bands=self._band_frequencies.copy(),
                 cutoff_features=cutoff_features,
-                temporal_features=temporal_features,
-                artifact_features=artifact_features,
                 sfb21_features=sfb21_features,
                 rolloff_features=rolloff_features,
+                discriminative_features=discriminative_features,
                 is_vbr=is_vbr,
             )
 
@@ -252,6 +258,9 @@ class SpectrumAnalyzer:
             max_val = np.max(band_features)
             if max_val > min_val:
                 band_features = (band_features - min_val) / (max_val - min_val)
+            else:
+                # Flat spectrum (all bands identical) — no discriminative info
+                band_features = np.zeros(self.num_bands, dtype=np.float32)
 
             return band_features
 
@@ -336,151 +345,12 @@ class SpectrumAnalyzer:
             dtype=np.float32,
         )
 
-    def _extract_temporal_features(self, y: np.ndarray, sr: int, n_windows: int = 8) -> np.ndarray:
-        """Temporal descriptors to highlight VBR variability (length 8).
-
-        Note: Reduced from 16 to 8 windows for performance (~50% fewer Welch calls)
-        while maintaining sufficient temporal resolution for VBR detection.
-        """
-        if n_windows <= 0:
-            return np.zeros(8, dtype=np.float32)
-
-        segments = np.array_split(y, n_windows)
-        cutoff_vals: list[float] = []
-        hf_energy: list[float] = []
-        window_energy: list[float] = []
-
-        for segment in segments:
-            if len(segment) == 0:
-                continue
-            freqs, psd = signal.welch(segment, sr, nperseg=self.fft_size)
-            cutoff_vals.append(self._estimate_cutoff_normalized(freqs, psd))
-
-            band_mask = (freqs >= self.min_freq) & (freqs <= 20000)
-            hf_vals = psd[band_mask]
-            hf_energy.append(float(hf_vals.mean()) if len(hf_vals) else 0.0)
-            window_energy.append(float(psd.mean()) if len(psd) else 0.0)
-
-        if not cutoff_vals:
-            return np.zeros(8, dtype=np.float32)
-
-        cutoff_arr = np.asarray(cutoff_vals, dtype=np.float32)
-        hf_arr = np.asarray(hf_energy, dtype=np.float32)
-        energy_arr = np.asarray(window_energy, dtype=np.float32)
-
-        cutoff_variance = float(np.var(cutoff_arr))
-        cutoff_min = float(cutoff_arr.min())
-        cutoff_max = float(cutoff_arr.max())
-        cutoff_mean = float(cutoff_arr.mean()) or 1e-6
-        cutoff_stability_ratio = float((cutoff_max - cutoff_min) / cutoff_mean)
-
-        hf_energy_variance = float(np.var(hf_arr))
-        if len(hf_arr) > 1:
-            hf_energy_trend = float(np.polyfit(np.arange(len(hf_arr)), hf_arr, 1)[0])
-        else:
-            hf_energy_trend = 0.0
-
-        if len(cutoff_arr) > 1:
-            diffs = np.diff(cutoff_arr)
-            temporal_consistency = float(np.mean(np.abs(diffs)))
-        else:
-            temporal_consistency = 0.0
-
-        frame_energy_variance = float(np.var(energy_arr))
-
-        return np.array(
-            [
-                cutoff_variance,
-                cutoff_min,
-                cutoff_max,
-                cutoff_stability_ratio,
-                hf_energy_variance,
-                hf_energy_trend,
-                temporal_consistency,
-                frame_energy_variance,
-            ],
-            dtype=np.float32,
-        )
-
-    def _spectral_flatness(self, values: np.ndarray) -> float:
-        """Compute spectral flatness (handles dB inputs without log warnings)."""
-        values = np.asarray(values, dtype=np.float64)
-        values = values[np.isfinite(values)]
-        if values.size == 0:
-            return 0.0
-
-        # Convert from dB to linear power so values are positive before log
-        linear = np.power(10.0, values / 10.0)
-        linear = np.clip(linear, 1e-12, None)
-
-        geometric_mean = np.exp(np.mean(np.log(linear)))
-        arithmetic_mean = np.mean(linear)
-        if arithmetic_mean <= 0:
-            return 0.0
-        return float(geometric_mean / arithmetic_mean)
-
-    def _extract_artifact_features(
-        self, psd: np.ndarray, freqs: np.ndarray, cutoff_features: np.ndarray
-    ) -> np.ndarray:
-        """Artifact descriptors for transcode detection (length 6)."""
-        band_mask = (freqs >= self.min_freq) & (freqs <= self.max_freq)
-        freqs_band = freqs[band_mask]
-        psd_band = psd[band_mask]
-
-        if len(freqs_band) == 0:
-            return np.zeros(6, dtype=np.float32)
-
-        cutoff_norm = float(cutoff_features[0]) if len(cutoff_features) > 0 else 0.0
-        cutoff_freq = (cutoff_norm * (self.max_freq - self.min_freq)) + self.min_freq
-
-        psd_db = 10 * np.log10(psd_band + 1e-12)
-        above_mask = freqs_band > cutoff_freq
-        below_mask = freqs_band <= cutoff_freq
-
-        above = psd_db[above_mask]
-        below = psd_db[below_mask]
-
-        if len(above) == 0:
-            above = np.array([0.0])
-        if len(below) == 0:
-            below = np.array([0.0])
-
-        threshold = max(float(above.max()), float(below.max())) - 25.0
-        sparsity = 1.0 - (float(np.sum(above > threshold)) / float(len(above)))
-
-        noise_ratio = self._spectral_flatness(above)
-        spectral_flatness_hf = self._spectral_flatness(psd_db[freqs_band >= 18000])
-
-        spectral_discontinuity = float(np.std(np.diff(psd_db))) if len(psd_db) > 1 else 0.0
-        harmonic_residual = float(1.0 - self._spectral_flatness(below))
-
-        # Measure deviation from a smoothed spectrum as proxy for interpolation artifacts
-        try:
-            smoothed = signal.medfilt(psd_db, kernel_size=5)
-            interpolation_score = float(np.mean(np.abs(psd_db - smoothed)))
-        except ValueError as e:
-            # Expected error: invalid kernel size for array
-            logger.debug(f"Could not compute interpolation score: {e}")
-            interpolation_score = 0.0
-        except Exception as e:
-            # Unexpected errors - log for investigation
-            logger.error(f"Unexpected error computing interpolation score: {e}", exc_info=True)
-            interpolation_score = 0.0
-
-        return np.array(
-            [
-                sparsity,
-                noise_ratio,
-                spectral_flatness_hf,
-                spectral_discontinuity,
-                harmonic_residual,
-                interpolation_score,
-            ],
-            dtype=np.float32,
-        )
-
-    def _extract_sfb21_features(self, y: np.ndarray, sr: int) -> np.ndarray:
+    def _extract_sfb21_features(self, S: np.ndarray, freqs: np.ndarray) -> np.ndarray:
         """SFB21 features for V0 vs LOSSLESS discrimination (length 6).
+
+        Args:
+            S: STFT magnitude matrix (n_freq x n_frames) from analyze_file
+            freqs: Frequency array corresponding to S rows
 
         Features:
         1. sfb21_ultra_ratio: energy(19.5-22kHz) / energy(16-19.5kHz)
@@ -492,14 +362,8 @@ class SpectrumAnalyzer:
         5. sfb21_flat_iqr: IQR of per-frame flatness (V0 higher, -82%)
         6. flat_19_20k: flatness in 19-20kHz sub-band (LL higher, +57%)
         """
-        if len(y) == 0:
+        if S.size == 0:
             return np.zeros(6, dtype=np.float32)
-
-        # Use STFT for frequency analysis
-        n_fft = 4096
-        hop = 2048
-        S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
-        freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
 
         # Band masks
         below_sfb21 = (freqs >= 14000) & (freqs < 16000)  # Just below sfb21
@@ -559,12 +423,12 @@ class SpectrumAnalyzer:
             dtype=np.float32,
         )
 
-    def _extract_rolloff_features(self, y: np.ndarray, sr: int) -> np.ndarray:
+    def _extract_rolloff_features(self, S_power: np.ndarray, freqs: np.ndarray) -> np.ndarray:
         """Rolloff curve shape features between 18-21kHz (length 4).
 
-        Analyzes the shape of spectral energy decline in the rolloff region.
-        V0's encoder creates a characteristic steep rolloff around 19.5kHz.
-        FLAC's rolloff depends on source material - typically smoother/shallower.
+        Args:
+            S_power: STFT power matrix (|S|², n_freq x n_frames) from analyze_file
+            freqs: Frequency array corresponding to S_power rows
 
         Features:
         1. rolloff_slope: Linear slope in dB/kHz - V0 steeper (more negative)
@@ -572,15 +436,11 @@ class SpectrumAnalyzer:
         3. rolloff_ratio_early: 19-20kHz vs 18-19kHz energy - V0 higher
         4. rolloff_ratio_late: 20-21kHz vs 19-20kHz energy - LOSSLESS higher
         """
-        if len(y) == 0:
+        if S_power.size == 0:
             return np.zeros(4, dtype=np.float32)
 
-        n_fft = 8192  # High resolution for precise frequency analysis
-
-        # Compute power spectrum (averaged across time)
-        S = np.abs(librosa.stft(y, n_fft=n_fft)) ** 2
-        power_spectrum = np.mean(S, axis=1)
-        freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+        # Mean power spectrum across time
+        power_spectrum = np.mean(S_power, axis=1)
 
         # Rolloff region 18-21kHz
         rolloff_mask = (freqs >= 18000) & (freqs <= 21000)
@@ -626,43 +486,98 @@ class SpectrumAnalyzer:
             dtype=np.float32,
         )
 
+    def _extract_discriminative_features(
+        self, psd_bands: np.ndarray, sfb21_features: np.ndarray
+    ) -> np.ndarray:
+        """Extract 6 discriminative features for 128/V2 class separation.
+
+        Computed from already-extracted PSD bands and SFB21 features — no
+        additional FFT/Welch calls needed.
+
+        128 kbps discrimination (4 features):
+        - f128_psd_ratio_low_high: mean(psd[0:30]) / mean(psd[70:100])
+        - f128_psd_ratio_mid_ultra: mean(psd[40:60]) / mean(psd[100:130])
+        - f128_energy_above_17k: sum(psd[25:100])
+        - f128_energy_above_19k: sum(psd[75:100])
+
+        V2/V0 discrimination (2 features):
+        - v2_energy_ratio_19k: energy above 19k / energy below 19k
+        - v2_sfb21_peak_ratio: max / mean in SFB21 region
+        """
+        eps = 1e-10
+        MAX_RATIO = 20.0  # Beyond this, "very different" is enough info
+
+        # Clamp to 0-1 range (defensive: flat-spectrum edge case)
+        psd_bands = np.clip(psd_bands, 0.0, 1.0)
+
+        # --- 128 kbps features ---
+        mean_low = np.mean(psd_bands[0:30]) + eps
+        mean_high = np.mean(psd_bands[70:100]) + eps
+        f128_psd_ratio_low_high = np.clip(mean_low / mean_high, 0, MAX_RATIO)
+
+        mean_mid = np.mean(psd_bands[40:60]) + eps
+        mean_ultra = np.mean(psd_bands[100:130]) + eps
+        f128_psd_ratio_mid_ultra = np.clip(mean_mid / mean_ultra, 0, MAX_RATIO)
+
+        f128_energy_above_17k = float(np.sum(psd_bands[25:100]))
+        f128_energy_above_19k = float(np.sum(psd_bands[75:100]))
+
+        # --- V2/V0 features ---
+        # v2_energy_ratio_19k: energy above 19k / energy below 19k (within analysis band)
+        energy_below_19k = np.sum(psd_bands[:75]) + eps
+        energy_above_19k = np.sum(psd_bands[75:]) + eps
+        v2_energy_ratio_19k = np.clip(energy_above_19k / energy_below_19k, 0, MAX_RATIO)
+
+        # v2_sfb21_peak_ratio: max / mean in SFB21 region
+        sfb21_mean = np.mean(sfb21_features) + eps
+        sfb21_max = np.max(sfb21_features) + eps
+        v2_sfb21_peak_ratio = np.clip(sfb21_max / sfb21_mean, 0, MAX_RATIO)
+
+        return np.array(
+            [
+                f128_psd_ratio_low_high,
+                f128_psd_ratio_mid_ultra,
+                f128_energy_above_17k,
+                f128_energy_above_19k,
+                v2_energy_ratio_19k,
+                v2_sfb21_peak_ratio,
+            ],
+            dtype=np.float32,
+        )
+
     def _split_feature_vector(
         self, vector: np.ndarray, metadata: dict
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split cached feature vector into component arrays."""
         psd_len = metadata.get("n_bands", self.num_bands)
         cutoff_len = metadata.get("cutoff_len", 6)
-        temporal_len = metadata.get("temporal_len", 8)
-        artifact_len = metadata.get("artifact_len", 6)
         sfb21_len = metadata.get("sfb21_len", 6)
         rolloff_len = metadata.get("rolloff_len", 4)
+        discriminative_len = metadata.get("discriminative_len", 6)
 
         psd_end = psd_len
         cutoff_end = psd_end + cutoff_len
-        temporal_end = cutoff_end + temporal_len
-        artifact_end = temporal_end + artifact_len
-        sfb21_end = artifact_end + sfb21_len
+        sfb21_end = cutoff_end + sfb21_len
         rolloff_end = sfb21_end + rolloff_len
+        discriminative_end = rolloff_end + discriminative_len
 
         psd_bands = vector[:psd_end]
         cutoff_feats = vector[psd_end:cutoff_end] if cutoff_len else np.zeros(6, dtype=np.float32)
-        temporal_feats = (
-            vector[cutoff_end:temporal_end] if temporal_len else np.zeros(8, dtype=np.float32)
-        )
-        artifact_feats = (
-            vector[temporal_end:artifact_end] if artifact_len else np.zeros(6, dtype=np.float32)
-        )
-        sfb21_feats = vector[artifact_end:sfb21_end] if sfb21_len else np.zeros(6, dtype=np.float32)
+        sfb21_feats = vector[cutoff_end:sfb21_end] if sfb21_len else np.zeros(6, dtype=np.float32)
         rolloff_feats = (
             vector[sfb21_end:rolloff_end] if rolloff_len else np.zeros(4, dtype=np.float32)
+        )
+        discriminative_feats = (
+            vector[rolloff_end:discriminative_end]
+            if discriminative_len
+            else np.zeros(8, dtype=np.float32)
         )
         return (
             np.asarray(psd_bands, dtype=np.float32),
             np.asarray(cutoff_feats, dtype=np.float32),
-            np.asarray(temporal_feats, dtype=np.float32),
-            np.asarray(artifact_feats, dtype=np.float32),
             np.asarray(sfb21_feats, dtype=np.float32),
             np.asarray(rolloff_feats, dtype=np.float32),
+            np.asarray(discriminative_feats, dtype=np.float32),
         )
 
     def _validate_audio(self, y: np.ndarray, sr: int) -> bool:

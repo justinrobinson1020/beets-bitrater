@@ -4,6 +4,7 @@ Based on D'Alessandro & Shi paper methodology with polynomial SVM.
 """
 
 import logging
+import os
 import pickle
 from pathlib import Path
 
@@ -11,10 +12,34 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from .constants import BITRATE_CLASSES, CLASSIFIER_PARAMS
+from .constants import BITRATE_CLASSES, CLASSIFIER_PARAMS, FEATURE_MASK_NAMES, FEATURE_NAMES
 from .types import ClassifierPrediction, SpectralFeatures
 
 logger = logging.getLogger("beets.bitrater")
+
+
+def _save_grid_progress(progress_path: Path, all_results: list, best_params: dict, best_score: float) -> None:
+    """Atomically save grid search progress to JSON."""
+    import json
+    import tempfile
+
+    progress_path = Path(progress_path)
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "best_params": best_params,
+        "best_score": best_score,
+        "completed": len(all_results),
+        "all_results": all_results,
+    }
+    # Atomic write: write to temp file then rename
+    fd, tmp = tempfile.mkstemp(dir=progress_path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp, progress_path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 class QualityClassifier:
@@ -47,6 +72,7 @@ class QualityClassifier:
 
         self.scaler = StandardScaler()
         self.trained = False
+        self.feature_mask: np.ndarray | None = None
 
         # Use predefined classes from constants
         self.classes = BITRATE_CLASSES
@@ -54,6 +80,17 @@ class QualityClassifier:
         # Load pre-trained model if provided
         if model_path and Path(model_path).exists():
             self.load_model(model_path)
+
+    @staticmethod
+    def _resolve_feature_mask(keep_names: set[str]) -> np.ndarray:
+        """Resolve feature mask from a set of feature names to keep.
+
+        Returns an array of indices into the 167-feature vector.
+        """
+        return np.array(
+            [i for i, name in enumerate(FEATURE_NAMES) if name in keep_names],
+            dtype=np.intp,
+        )
 
     def _extract_features(self, features: SpectralFeatures) -> np.ndarray:
         """
@@ -108,6 +145,11 @@ class QualityClassifier:
         y = np.array(labels)
         extract_time = time.time() - extract_start
         logger.info(f"Feature extraction completed in {extract_time:.2f}s")
+
+        # Apply feature mask
+        self.feature_mask = self._resolve_feature_mask(FEATURE_MASK_NAMES)
+        X = X[:, self.feature_mask]
+        logger.info(f"Feature mask applied: {len(FEATURE_NAMES)} -> {X.shape[1]} features")
 
         # Log feature matrix statistics
         logger.info("Feature matrix statistics:")
@@ -188,6 +230,196 @@ class QualityClassifier:
         if save_path:
             self.save_model(save_path)
 
+    def grid_search(
+        self,
+        features_list: list[SpectralFeatures],
+        labels: list[int],
+        param_grid: dict | None = None,
+        cv: int = 5,
+        n_jobs: int = -1,
+        save_path: Path | None = None,
+        progress_path: Path | None = None,
+        verbose: bool = False,
+    ) -> dict:
+        """
+        Run grid search over SVM hyperparameters.
+
+        Args:
+            features_list: List of SpectralFeatures objects
+            labels: List of class labels
+            param_grid: Parameter grid for GridSearchCV. If None, uses default.
+            cv: Number of cross-validation folds
+            n_jobs: Number of parallel jobs (-1 = all CPUs)
+            save_path: Optional path to save the best model
+            progress_path: Optional path to save/resume incremental progress (JSON)
+            verbose: If True, log per-combination timing and per-fold scores
+
+        Returns:
+            Dict with best_params, best_score, elapsed_seconds, all_results
+        """
+        import json
+        import time
+
+        from sklearn.model_selection import GridSearchCV, StratifiedKFold
+
+        if not features_list or not labels:
+            raise ValueError("Empty training data")
+
+        # Extract features
+        X = np.array([self._extract_features(f) for f in features_list])
+        y = np.array(labels)
+
+        # Apply feature mask
+        self.feature_mask = self._resolve_feature_mask(FEATURE_MASK_NAMES)
+        X = X[:, self.feature_mask]
+
+        # Scale features
+        X_scaled = self.scaler.fit_transform(X)
+
+        # Default parameter grid
+        if param_grid is None:
+            param_grid = {
+                "kernel": ["poly"],
+                "C": [0.1, 1, 10, 100],
+                "gamma": ["scale", 0.01, 0.1, 1, 10],
+                "degree": [2, 3],
+            }
+
+        # Calculate total work for progress reporting
+        from sklearn.model_selection import ParameterGrid, StratifiedKFold, cross_val_score
+        from tqdm import tqdm
+
+        param_list = list(ParameterGrid(param_grid))
+        n_candidates = len(param_list)
+        n_fits = n_candidates * cv
+
+        logger.info("=" * 60)
+        logger.info("GRID SEARCH")
+        logger.info(f"  Samples: {len(X)}")
+        logger.info(f"  Features: {X.shape[1]}")
+        logger.info(f"  CV folds: {cv}")
+        logger.info(f"  Parameter combinations: {n_candidates}")
+        logger.info(f"  Total fits: {n_fits}")
+        logger.info(f"  Parallel jobs: {n_jobs}")
+        logger.info(f"  Param grid: {param_grid}")
+        logger.info("=" * 60)
+
+        # Set up CV strategy
+        cv_strategy = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+        # Base SVM params shared across all candidates
+        base_params = {
+            "coef0": CLASSIFIER_PARAMS["coef0"],
+            "probability": True,
+            "cache_size": CLASSIFIER_PARAMS["cache_size"],
+            "class_weight": CLASSIFIER_PARAMS["class_weight"],
+            "random_state": CLASSIFIER_PARAMS["random_state"],
+        }
+
+        # Load existing progress if available
+        completed: dict[str, dict] = {}
+        if progress_path and Path(progress_path).exists():
+            with open(progress_path) as f:
+                saved = json.load(f)
+            for r in saved.get("all_results", []):
+                key = json.dumps(r["params"], sort_keys=True)
+                completed[key] = r
+            logger.info(f"Resuming grid search: {len(completed)}/{n_candidates} already done")
+
+        # Manual grid search with tqdm progress bar
+        all_results = list(completed.values())
+        best_score = max((r["mean_score"] for r in all_results), default=-1.0)
+        best_params = {}
+        if all_results and best_score > 0:
+            best_params = max(all_results, key=lambda r: r["mean_score"])["params"]
+
+        start = time.time()
+        skipped = 0
+        with tqdm(
+            total=n_candidates,
+            initial=len(completed),
+            desc="Grid search",
+            unit="combo",
+            dynamic_ncols=True,
+        ) as pbar:
+            for i, params in enumerate(param_list):
+                key = json.dumps(params, sort_keys=True)
+                if key in completed:
+                    skipped += 1
+                    continue
+
+                if verbose:
+                    logger.info(f"  [{i+1}/{n_candidates}] Testing {params} ...")
+
+                svm = SVC(**base_params, **params, max_iter=50_000)
+                combo_start = time.time()
+                scores = cross_val_score(
+                    svm, X_scaled, y, cv=cv_strategy, scoring="accuracy", n_jobs=n_jobs
+                )
+                combo_elapsed = time.time() - combo_start
+                mean_score = float(scores.mean())
+                std_score = float(scores.std())
+
+                if verbose:
+                    fold_str = " ".join(f"{s:.4f}" for s in scores)
+                    logger.info(
+                        f"  [{i+1}/{n_candidates}] {params} -> {mean_score:.4f} +/- {std_score:.4f} "
+                        f"[{combo_elapsed:.1f}s] folds: [{fold_str}]"
+                    )
+
+                result = {
+                    "params": params,
+                    "mean_score": mean_score,
+                    "std_score": std_score,
+                    "elapsed": combo_elapsed,
+                }
+                all_results.append(result)
+                completed[key] = result
+
+                if mean_score > best_score:
+                    best_score = mean_score
+                    best_params = params
+
+                pbar.update(1)
+                pbar.set_postfix({
+                    "best": f"{best_score:.4f}",
+                    "current": f"{mean_score:.4f}",
+                    "time": f"{combo_elapsed:.1f}s",
+                })
+
+                # Save progress after each combination
+                if progress_path:
+                    _save_grid_progress(progress_path, all_results, best_params, best_score)
+
+        elapsed = time.time() - start
+
+        # Refit best model on full dataset
+        best_estimator = SVC(**base_params, **best_params, max_iter=50_000)
+        best_estimator.fit(X_scaled, y)
+        self.classifier = best_estimator
+        self.trained = True
+
+        # Rank results
+        all_results.sort(key=lambda r: r["mean_score"], reverse=True)
+        for rank, r in enumerate(all_results, 1):
+            r["rank"] = rank
+
+        logger.info("=" * 60)
+        logger.info(f"GRID SEARCH COMPLETE in {elapsed:.1f}s")
+        logger.info(f"  Best score: {best_score:.4f}")
+        logger.info(f"  Best params: {best_params}")
+        logger.info("=" * 60)
+
+        if save_path:
+            self.save_model(save_path)
+
+        return {
+            "best_params": best_params,
+            "best_score": best_score,
+            "elapsed_seconds": elapsed,
+            "all_results": all_results,
+        }
+
     def predict(self, features: SpectralFeatures) -> ClassifierPrediction:
         """
         Predict quality class from spectral features.
@@ -203,6 +435,8 @@ class QualityClassifier:
 
         # Extract and scale features
         X = self._extract_features(features).reshape(1, -1)
+        if self.feature_mask is not None:
+            X = X[:, self.feature_mask]
         X_scaled = self.scaler.transform(X)
 
         # Get prediction and probabilities
@@ -244,6 +478,12 @@ class QualityClassifier:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Store mask as list of kept feature names (robust to future reordering)
+        if self.feature_mask is not None:
+            mask_names = [FEATURE_NAMES[i] for i in self.feature_mask]
+        else:
+            mask_names = None
+
         with open(path, "wb") as f:
             pickle.dump(
                 {
@@ -251,7 +491,8 @@ class QualityClassifier:
                     "scaler": self.scaler,
                     "classes": self.classes,
                     "trained": self.trained,
-                    "version": "3.0",
+                    "feature_mask_names": mask_names,
+                    "version": "5.0",
                 },
                 f,
             )
@@ -270,11 +511,18 @@ class QualityClassifier:
             self.classes = data.get("classes", BITRATE_CLASSES)
             self.trained = data["trained"]
 
+        # Restore feature mask from saved names
+        mask_names = data.get("feature_mask_names")
+        if mask_names is not None:
+            self.feature_mask = self._resolve_feature_mask(set(mask_names))
+        else:
+            self.feature_mask = None
+
         # Version check
         model_version = data.get("version")
-        if model_version != "3.0":
+        if model_version != "5.0":
             logger.warning(
-                f"Model version mismatch: expected '3.0', got '{model_version}'. "
+                f"Model version mismatch: expected '5.0', got '{model_version}'. "
                 "Predictions may be unreliable."
             )
 

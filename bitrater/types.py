@@ -15,19 +15,21 @@ class SpectralFeatures:
     150 PSD bands covering 16-22 kHz plus encoder-agnostic extras:
     - Bands 0-99: 16-20 kHz (paper's bitrate detection range)
     - Bands 100-149: 20-22 kHz (ultrasonic for lossless detection)
-    - 6 cutoff features, 8 temporal features, 6 artifact features
+    - 6 cutoff features
     - 6 SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
     - 4 rolloff features (slope, total_drop, ratio_early, ratio_late)
+    - 6 discriminative features (128/V2 targeted ratios and energy)
     - is_vbr metadata flag for VBR/CBR discrimination
+
+    Total: PSD(150) + cutoff(6) + SFB21(6) + rolloff(4) + discriminative(6) + is_vbr(1) = 173 features
     """
 
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
     frequency_bands: list[tuple[float, float]]  # (start_freq, end_freq) pairs
     cutoff_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
-    temporal_features: np.ndarray = field(default_factory=lambda: np.zeros(8, dtype=np.float32))
-    artifact_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
     sfb21_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
     rolloff_features: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
+    discriminative_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
     is_vbr: float = 0.0  # 1.0 if VBR, 0.0 if CBR/ABR/unknown (from file metadata)
 
     def as_vector(self) -> np.ndarray:
@@ -35,10 +37,9 @@ class SpectralFeatures:
         base = [
             np.asarray(self.features, dtype=np.float32).flatten(),
             np.asarray(self.cutoff_features, dtype=np.float32).flatten(),
-            np.asarray(self.temporal_features, dtype=np.float32).flatten(),
-            np.asarray(self.artifact_features, dtype=np.float32).flatten(),
             np.asarray(self.sfb21_features, dtype=np.float32).flatten(),
             np.asarray(self.rolloff_features, dtype=np.float32).flatten(),
+            np.asarray(self.discriminative_features, dtype=np.float32).flatten(),
             np.array([self.is_vbr], dtype=np.float32),
         ]
         return np.concatenate(base)
