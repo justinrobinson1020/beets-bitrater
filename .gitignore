@@ -54,6 +54,7 @@ training_data/analysis_results/
 training_data/logs/
 
 # Log files
+logs/
 encoding_log_*.txt
 *.log
 
