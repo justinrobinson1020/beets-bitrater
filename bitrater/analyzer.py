@@ -25,7 +25,6 @@ from .constants import (  # noqa: E402
 
 # TYPE_CHECKING imports for type hints only - not imported at runtime in workers
 if TYPE_CHECKING:
-    from .file_analyzer import FileAnalyzer
     from .spectrum import SpectrumAnalyzer
     from .types import AnalysisResult, SpectralFeatures
 
@@ -35,7 +34,7 @@ logger = logging.getLogger("beets.bitrater")
 # Module-level cache for worker instances (one per process)
 _worker_initialized: bool = False
 _worker_analyzer: SpectrumAnalyzer | None = None
-_worker_file_analyzer: FileAnalyzer | None = None
+
 
 
 def _init_worker() -> None:
@@ -75,11 +74,11 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     """
     Worker function for joblib.Parallel - extracts features from audio file.
 
-    CRITICAL: Reuses SpectrumAnalyzer/FileAnalyzer per process to avoid
+    CRITICAL: Reuses SpectrumAnalyzer per process to avoid
     spawning new threads on each call. FeatureCache creates a worker thread
     that would leak if we created new instances per call.
     """
-    global _worker_analyzer, _worker_file_analyzer
+    global _worker_analyzer
 
     # One-time setup per worker process
     _init_worker()
@@ -87,20 +86,14 @@ def _extract_features_worker(file_path: str) -> tuple[str, SpectralFeatures | No
     from threadpoolctl import threadpool_limits
 
     with threadpool_limits(limits=1):
-        from .file_analyzer import FileAnalyzer
         from .spectrum import SpectrumAnalyzer
 
-        # Create analyzers ONCE per worker process (avoids thread leak)
+        # Create analyzer ONCE per worker process (avoids thread leak)
         if _worker_analyzer is None:
             _worker_analyzer = SpectrumAnalyzer()
-            _worker_file_analyzer = FileAnalyzer()
 
         try:
-            # Get metadata to determine is_vbr flag
-            metadata = _worker_file_analyzer.analyze(file_path)
-            is_vbr = 1.0 if metadata and metadata.encoding_type == "VBR" else 0.0
-
-            features = _worker_analyzer.analyze_file(file_path, is_vbr=is_vbr)
+            features = _worker_analyzer.analyze_file(file_path)
             return (file_path, features)
         except FileNotFoundError:
             return (file_path, None)
@@ -176,13 +169,8 @@ class AudioQualityAnalyzer:
             )
             metadata = None
 
-        # 2. Extract spectral features with VBR metadata
-        # Determine if file is VBR from metadata (helps discriminate V0/V2 from CBR)
-        is_vbr = 0.0
-        if metadata and metadata.encoding_type == "VBR":
-            is_vbr = 1.0
-
-        features = self.spectrum_analyzer.analyze_file(file_path, is_vbr=is_vbr)
+        # 2. Extract spectral features (pure signal analysis, no metadata dependency)
+        features = self.spectrum_analyzer.analyze_file(file_path)
         if features is None:
             logger.error(f"Failed to extract spectral features from {file_path}")
             return None
@@ -307,21 +295,7 @@ class AudioQualityAnalyzer:
         progress_interval = 1
 
         for idx, (file_path, label) in enumerate(training_data.items(), 1):
-            # Get metadata to determine is_vbr
-            is_vbr = 0.0
-            try:
-                metadata = self.file_analyzer.analyze(file_path)
-                if metadata and metadata.encoding_type == "VBR":
-                    is_vbr = 1.0
-            except (ValueError, RuntimeError, KeyError):
-                # Expected errors: unsupported format, corrupt metadata, missing tags
-                # Default to is_vbr=0.0 if metadata extraction fails
-                pass
-            except Exception as e:
-                # Unexpected errors - log for investigation but continue
-                logger.debug(f"Unexpected error reading metadata for {file_path}: {e}")
-
-            features = self.spectrum_analyzer.analyze_file(file_path, is_vbr=is_vbr)
+            features = self.spectrum_analyzer.analyze_file(file_path)
             if features is not None:
                 features_list.append(features)
                 labels.append(label)
@@ -556,7 +530,7 @@ class AudioQualityAnalyzer:
         failed_extractions = []
 
         logger.info("=" * 60)
-        logger.info(f"VALIDATION: Running predictions on test set...")
+        logger.info("VALIDATION: Running predictions on test set...")
         logger.info("=" * 60)
 
         predict_start = time.time()
@@ -730,7 +704,7 @@ class AudioQualityAnalyzer:
         logger.info(f"Running predictions on {len(results)} samples...")
 
         predict_start = time.time()
-        for (file_path, features), true_label in zip(
+        for (_file_path, features), true_label in zip(
             results, [training_data[p] for p in file_paths], strict=True
         ):
             if features is None:

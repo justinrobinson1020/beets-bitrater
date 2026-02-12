@@ -96,8 +96,7 @@ class QualityClassifier:
         """
         Extract feature vector from SpectralFeatures.
 
-        Returns concatenated vector: PSD bands + cutoff + temporal + artifact + is_vbr.
-        The is_vbr feature helps discriminate VBR (V0, V2) from CBR (128, 192, etc).
+        Returns concatenated vector: PSD bands + cutoff + SFB21 + rolloff + discriminative.
         """
         return features.as_vector().astype(np.float32)
 
@@ -260,7 +259,7 @@ class QualityClassifier:
         import json
         import time
 
-        from sklearn.model_selection import GridSearchCV, StratifiedKFold
+        from sklearn.model_selection import StratifiedKFold
 
         if not features_list or not labels:
             raise ValueError("Empty training data")
@@ -286,7 +285,7 @@ class QualityClassifier:
             }
 
         # Calculate total work for progress reporting
-        from sklearn.model_selection import ParameterGrid, StratifiedKFold, cross_val_score
+        from sklearn.model_selection import ParameterGrid, cross_val_score
         from tqdm import tqdm
 
         param_list = list(ParameterGrid(param_grid))
@@ -492,7 +491,7 @@ class QualityClassifier:
                     "classes": self.classes,
                     "trained": self.trained,
                     "feature_mask_names": mask_names,
-                    "version": "5.0",
+                    "version": "7.0",
                 },
                 f,
             )
@@ -520,9 +519,9 @@ class QualityClassifier:
 
         # Version check
         model_version = data.get("version")
-        if model_version != "5.0":
+        if model_version != "7.0":
             logger.warning(
-                f"Model version mismatch: expected '5.0', got '{model_version}'. "
+                f"Model version mismatch: expected '7.0', got '{model_version}'. "
                 "Predictions may be unreliable."
             )
 

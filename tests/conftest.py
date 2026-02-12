@@ -41,6 +41,13 @@ def sample_features() -> SpectralFeatures:
     discriminative_features = np.array(
         [1.5, 2.0, 25.0, 5.0, 0.15, 2.5], dtype=np.float32
     )
+    # Realistic 320kbps temporal: low artifact variance (high quality)
+    temporal_features = np.array([0.001, 0.02, 0.05, 0.3], dtype=np.float32)
+    # Realistic 320kbps MDCT: low zeros
+    mdct_features = np.array(
+        [0.12, 0.008, 0.02, 0.15, 0.006, 1.0],
+        dtype=np.float32,
+    )
 
     return SpectralFeatures(
         features=features,
@@ -49,7 +56,8 @@ def sample_features() -> SpectralFeatures:
         sfb21_features=sfb21_features,
         rolloff_features=rolloff_features,
         discriminative_features=discriminative_features,
-        is_vbr=0.0,  # Simulating CBR file
+        temporal_features=temporal_features,
+        mdct_features=mdct_features,
     )
 
 
@@ -77,6 +85,13 @@ def lossless_features() -> SpectralFeatures:
     discriminative_features = np.array(
         [1.2, 1.3, 45.0, 18.0, 0.45, 1.8], dtype=np.float32
     )
+    # Realistic lossless temporal: very low artifact variance
+    temporal_features = np.array([0.0002, 0.005, 0.01, 0.1], dtype=np.float32)
+    # Realistic lossless MDCT: minimal zeros
+    mdct_features = np.array(
+        [0.02, 0.001, 0.005, 0.02, 0.001, 0.5],
+        dtype=np.float32,
+    )
 
     return SpectralFeatures(
         features=features,
@@ -85,7 +100,8 @@ def lossless_features() -> SpectralFeatures:
         sfb21_features=sfb21_features,
         rolloff_features=rolloff_features,
         discriminative_features=discriminative_features,
-        is_vbr=0.0,  # Lossless is not VBR
+        temporal_features=temporal_features,
+        mdct_features=mdct_features,
     )
 
 
@@ -156,9 +172,6 @@ def training_features() -> tuple[list, list]:
                 for i in range(num_bands)
             ]
 
-            # V2 and V0 are VBR, others are CBR
-            is_vbr = 1.0 if class_idx in [TrainingClass.VBR_V2, TrainingClass.VBR_V0] else 0.0
-
             # Class-appropriate SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
             noise = rng.random(6).astype(np.float32) * 0.05
             if class_idx == TrainingClass.CBR_128:
@@ -210,6 +223,81 @@ def training_features() -> tuple[list, list]:
             else:  # LOSSLESS
                 discrim = np.array([1.2, 1.3, 45.0, 18.0, 0.45, 1.8], dtype=np.float32) + noise_d
 
+            # Class-appropriate temporal features (artifact_var, artifact_iqr, artifact_range, complexity_corr)
+            noise_tp = rng.random(4).astype(np.float32) * 0.001
+            if class_idx == TrainingClass.CBR_128:
+                temporal = np.array([0.008, 0.06, 0.15, 0.6], dtype=np.float32) + noise_tp
+            elif class_idx == TrainingClass.VBR_V2:
+                temporal = np.array([0.004, 0.04, 0.10, 0.4], dtype=np.float32) + noise_tp
+            elif class_idx == TrainingClass.CBR_192:
+                temporal = np.array([0.005, 0.045, 0.12, 0.5], dtype=np.float32) + noise_tp
+            elif class_idx == TrainingClass.VBR_V0:
+                temporal = np.array([0.002, 0.025, 0.06, 0.25], dtype=np.float32) + noise_tp
+            elif class_idx == TrainingClass.CBR_256:
+                temporal = np.array([0.003, 0.03, 0.08, 0.35], dtype=np.float32) + noise_tp
+            elif class_idx == TrainingClass.CBR_320:
+                temporal = np.array([0.001, 0.02, 0.05, 0.3], dtype=np.float32) + noise_tp
+            else:  # LOSSLESS
+                temporal = np.array([0.0002, 0.005, 0.01, 0.1], dtype=np.float32) + noise_tp
+
+            # Class-appropriate cutoff cleanliness features
+            # (bleed_ratio, floor, variance, edge_gradient, correlation)
+            noise_cc = rng.random(5).astype(np.float32) * 0.02
+            if class_idx == TrainingClass.CBR_128:
+                cutoff_clean = np.array([0.05, 0.01, 0.8, 0.9, 0.7], dtype=np.float32) + noise_cc
+            elif class_idx == TrainingClass.VBR_V2:
+                cutoff_clean = np.array([0.15, 0.05, 0.5, 0.85, 0.4], dtype=np.float32) + noise_cc
+            elif class_idx == TrainingClass.CBR_192:
+                cutoff_clean = np.array([0.20, 0.08, 0.6, 0.75, 0.6], dtype=np.float32) + noise_cc
+            elif class_idx == TrainingClass.VBR_V0:
+                cutoff_clean = np.array([0.60, 0.25, 0.3, 0.3, 0.5], dtype=np.float32) + noise_cc
+            elif class_idx == TrainingClass.CBR_256:
+                cutoff_clean = np.array([0.30, 0.12, 0.5, 0.6, 0.65], dtype=np.float32) + noise_cc
+            elif class_idx == TrainingClass.CBR_320:
+                cutoff_clean = np.array([0.40, 0.18, 0.4, 0.45, 0.7], dtype=np.float32) + noise_cc
+            else:  # LOSSLESS
+                cutoff_clean = np.array([0.80, 0.40, 0.7, 0.15, 0.8], dtype=np.float32) + noise_cc
+
+            # Class-appropriate MDCT forensic features
+            # (zero_mean, zero_var, zero_iqr, sfb21_zero_mean,
+            #  sfb21_zero_var, sfb21_lower_ratio)
+            noise_md = rng.random(6).astype(np.float32) * 0.1
+            if class_idx == TrainingClass.CBR_128:
+                mdct = np.array(
+                    [0.45, 0.015, 0.08, 0.70, 0.020, 2.5],
+                    dtype=np.float32,
+                ) + noise_md
+            elif class_idx == TrainingClass.VBR_V2:
+                mdct = np.array(
+                    [0.30, 0.008, 0.05, 0.35, 0.008, 1.3],
+                    dtype=np.float32,
+                ) + noise_md
+            elif class_idx == TrainingClass.CBR_192:
+                mdct = np.array(
+                    [0.32, 0.018, 0.06, 0.55, 0.018, 2.0],
+                    dtype=np.float32,
+                ) + noise_md
+            elif class_idx == TrainingClass.VBR_V0:
+                mdct = np.array(
+                    [0.18, 0.005, 0.03, 0.20, 0.005, 1.1],
+                    dtype=np.float32,
+                ) + noise_md
+            elif class_idx == TrainingClass.CBR_256:
+                mdct = np.array(
+                    [0.20, 0.012, 0.04, 0.25, 0.010, 1.2],
+                    dtype=np.float32,
+                ) + noise_md
+            elif class_idx == TrainingClass.CBR_320:
+                mdct = np.array(
+                    [0.12, 0.008, 0.02, 0.15, 0.006, 1.0],
+                    dtype=np.float32,
+                ) + noise_md
+            else:  # LOSSLESS
+                mdct = np.array(
+                    [0.02, 0.001, 0.005, 0.02, 0.001, 0.5],
+                    dtype=np.float32,
+                ) + noise_md
+
             features_list.append(
                 SpectralFeatures(
                     features=features,
@@ -218,7 +306,9 @@ def training_features() -> tuple[list, list]:
                     sfb21_features=sfb21,
                     rolloff_features=rolloff,
                     discriminative_features=discrim,
-                    is_vbr=is_vbr,
+                    temporal_features=temporal,
+                    cutoff_cleanliness_features=cutoff_clean,
+                    mdct_features=mdct,
                 )
             )
             labels.append(int(class_idx))

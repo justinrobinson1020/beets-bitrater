@@ -99,31 +99,49 @@ class TestSplitFeatureVector:
         sfb21 = np.random.rand(6).astype(np.float32)
         rolloff = np.random.rand(4).astype(np.float32)
         discriminative = np.random.rand(6).astype(np.float32)
+        temporal = np.random.rand(4).astype(np.float32)
+        crossband = np.random.rand(6).astype(np.float32)
+        cutoff_cleanliness = np.random.rand(5).astype(np.float32)
+        mdct = np.random.rand(6).astype(np.float32)
 
-        combined = np.concatenate([psd, cutoff, sfb21, rolloff, discriminative])
+        combined = np.concatenate(
+            [psd, cutoff, sfb21, rolloff, discriminative, temporal, crossband,
+             cutoff_cleanliness, mdct]
+        )
         metadata = {
             "n_bands": 150,
             "cutoff_len": 6,
             "sfb21_len": 6,
             "rolloff_len": 4,
             "discriminative_len": 6,
+            "temporal_len": 4,
+            "crossband_len": 6,
+            "cutoff_cleanliness_len": 5,
+            "mdct_len": 6,
         }
 
         result = analyzer._split_feature_vector(combined, metadata)
-        r_psd, r_cutoff, r_sfb21, r_rolloff, r_discriminative = result
+        (
+            r_psd, r_cutoff, r_sfb21, r_rolloff, r_discriminative,
+            r_temporal, r_crossband, r_cutoff_cleanliness, r_mdct,
+        ) = result
 
         np.testing.assert_array_almost_equal(r_psd, psd)
         np.testing.assert_array_almost_equal(r_cutoff, cutoff)
         np.testing.assert_array_almost_equal(r_sfb21, sfb21)
         np.testing.assert_array_almost_equal(r_rolloff, rolloff)
         np.testing.assert_array_almost_equal(r_discriminative, discriminative)
+        np.testing.assert_array_almost_equal(r_temporal, temporal)
+        np.testing.assert_array_almost_equal(r_crossband, crossband)
+        np.testing.assert_array_almost_equal(r_cutoff_cleanliness, cutoff_cleanliness)
+        np.testing.assert_array_almost_equal(r_mdct, mdct)
 
     def test_missing_metadata_uses_defaults(self, analyzer):
-        combined = np.random.rand(172).astype(np.float32)
+        combined = np.random.rand(193).astype(np.float32)
         metadata = {"n_bands": 150}
 
         result = analyzer._split_feature_vector(combined, metadata)
-        assert len(result) == 5
+        assert len(result) == 9
 
 
 class TestGetPsd:
@@ -165,15 +183,26 @@ class TestAnalyzeFileWithCache:
         sfb21 = np.random.rand(6).astype(np.float32)
         rolloff = np.random.rand(4).astype(np.float32)
         discriminative = np.random.rand(6).astype(np.float32)
+        temporal = np.random.rand(4).astype(np.float32)
+        crossband = np.random.rand(6).astype(np.float32)
+        cutoff_cleanliness = np.random.rand(5).astype(np.float32)
+        mdct = np.random.rand(6).astype(np.float32)
 
-        combined = np.concatenate([psd, cutoff, sfb21, rolloff, discriminative])
+        combined = np.concatenate(
+            [psd, cutoff, sfb21, rolloff, discriminative, temporal, crossband,
+             cutoff_cleanliness, mdct]
+        )
         metadata = {
             "n_bands": num_bands,
-            "approach": "encoder_agnostic_v11",
+            "approach": "encoder_agnostic_v21",
             "cutoff_len": 6,
             "sfb21_len": 6,
             "rolloff_len": 4,
             "discriminative_len": 6,
+            "temporal_len": 4,
+            "crossband_len": 6,
+            "cutoff_cleanliness_len": 5,
+            "mdct_len": 6,
             "band_frequencies": analyzer._band_frequencies,
         }
 
@@ -182,16 +211,15 @@ class TestAnalyzeFileWithCache:
 
         # Should NOT call librosa.load
         with patch("bitrater.spectrum.librosa.load") as mock_load:
-            result = analyzer.analyze_file("/some/file.mp3", is_vbr=1.0)
+            result = analyzer.analyze_file("/some/file.mp3")
             mock_load.assert_not_called()
 
         assert result is not None
-        assert result.is_vbr == 1.0
 
     def test_cache_miss_wrong_approach(self, analyzer):
         """Cache with different approach version should be treated as miss."""
         num_bands = SPECTRAL_PARAMS["num_bands"]
-        combined = np.random.rand(num_bands + 22).astype(np.float32)
+        combined = np.random.rand(num_bands + 34).astype(np.float32)
         metadata = {
             "n_bands": num_bands,
             "approach": "old_approach_v1",  # Wrong approach

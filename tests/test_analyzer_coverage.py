@@ -702,21 +702,17 @@ class TestExtractFeaturesWorkerErrors:
     """Tests for _extract_features_worker error handling."""
 
     @patch("bitrater.analyzer._worker_analyzer")
-    @patch("bitrater.analyzer._worker_file_analyzer")
     @patch("bitrater.analyzer._init_worker")
-    def test_runtime_error_returns_none(self, mock_init, mock_fa, mock_sa):
+    def test_runtime_error_returns_none(self, mock_init, mock_sa):
         mock_sa.analyze_file.side_effect = RuntimeError("analysis failed")
-        mock_fa.analyze.return_value = None
 
         path, features = _extract_features_worker("/nonexistent/file.mp3")
         assert features is None
 
     @patch("bitrater.analyzer._worker_analyzer")
-    @patch("bitrater.analyzer._worker_file_analyzer")
     @patch("bitrater.analyzer._init_worker")
-    def test_unexpected_error_returns_none(self, mock_init, mock_fa, mock_sa):
+    def test_unexpected_error_returns_none(self, mock_init, mock_sa):
         mock_sa.analyze_file.side_effect = Exception("unexpected")
-        mock_fa.analyze.return_value = None
 
         path, features = _extract_features_worker("/nonexistent/file.mp3")
         assert features is None

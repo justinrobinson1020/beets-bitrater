@@ -85,7 +85,7 @@ class TestSaveAndGetFeatures:
     """Tests for save_features and get_features."""
 
     def test_save_and_retrieve(self, cache, sample_audio_file):
-        features = np.random.rand(173).astype(np.float32)
+        features = np.random.rand(193).astype(np.float32)
         metadata = {"n_bands": 150, "approach": "test"}
 
         cache.save_features(sample_audio_file, features, metadata)
@@ -109,7 +109,7 @@ class TestSaveAndGetFeatures:
         audio_file = tmp_path / "test.mp3"
         audio_file.write_bytes(b"\x00" * 100)
 
-        features = np.random.rand(173).astype(np.float32)
+        features = np.random.rand(193).astype(np.float32)
         metadata = {"n_bands": 150}
 
         cache.save_features(audio_file, features, metadata)
@@ -134,7 +134,7 @@ class TestClearCache:
     """Tests for clear_cache."""
 
     def test_clear_removes_files(self, cache, sample_audio_file):
-        features = np.random.rand(173).astype(np.float32)
+        features = np.random.rand(193).astype(np.float32)
         cache.save_features(sample_audio_file, features, {"n_bands": 150})
         cache.update_queue.join()
         time.sleep(0.1)
@@ -151,7 +151,7 @@ class TestClearCache:
         assert len(npz_files) == 0
 
     def test_clear_empties_metadata(self, cache, sample_audio_file):
-        features = np.random.rand(173).astype(np.float32)
+        features = np.random.rand(193).astype(np.float32)
         cache.save_features(sample_audio_file, features, {"n_bands": 150})
         cache.update_queue.join()
         time.sleep(0.1)
@@ -172,7 +172,7 @@ class TestGetCacheInfo:
         assert info["total_size_mb"] == 0.0
 
     def test_cache_info_with_files(self, cache, sample_audio_file):
-        features = np.random.rand(173).astype(np.float32)
+        features = np.random.rand(193).astype(np.float32)
         cache.save_features(sample_audio_file, features, {"n_bands": 150})
         cache.update_queue.join()
         time.sleep(0.1)

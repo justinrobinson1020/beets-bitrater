@@ -110,122 +110,6 @@ class TestSpectrumAnalyzer:
         assert np.all(features <= 1)
 
 
-class TestSpectrumAnalyzerIsVbr:
-    """Tests for SpectrumAnalyzer accepting and propagating is_vbr metadata."""
-
-    def test_analyze_file_accepts_is_vbr_parameter(self, tmp_path, monkeypatch) -> None:
-        """SpectrumAnalyzer.analyze_file should accept is_vbr parameter."""
-        analyzer = SpectrumAnalyzer()
-
-        # Mock librosa.load to return valid audio data
-        def mock_load(file_path, sr=None, mono=True):
-            return np.random.rand(44100), 44100  # 1 second at 44.1kHz
-
-        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
-
-        # Create a dummy file
-        test_file = tmp_path / "test.mp3"
-        test_file.touch()
-
-        # Should accept is_vbr parameter without error
-        result = analyzer.analyze_file(str(test_file), is_vbr=1.0)
-
-        assert result is not None
-        assert result.is_vbr == 1.0
-
-    def test_analyze_file_is_vbr_defaults_to_zero(self, tmp_path, monkeypatch) -> None:
-        """SpectrumAnalyzer.analyze_file should default is_vbr to 0.0."""
-        analyzer = SpectrumAnalyzer()
-
-        def mock_load(file_path, sr=None, mono=True):
-            return np.random.rand(44100), 44100
-
-        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
-
-        test_file = tmp_path / "test.mp3"
-        test_file.touch()
-
-        # Without is_vbr parameter, should default to 0.0
-        result = analyzer.analyze_file(str(test_file))
-
-        assert result is not None
-        assert result.is_vbr == 0.0
-
-    def test_analyze_file_propagates_is_vbr_cbr(self, tmp_path, monkeypatch) -> None:
-        """SpectrumAnalyzer should propagate is_vbr=0.0 for CBR files."""
-        analyzer = SpectrumAnalyzer()
-
-        def mock_load(file_path, sr=None, mono=True):
-            return np.random.rand(44100), 44100
-
-        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
-
-        test_file = tmp_path / "cbr_192.mp3"
-        test_file.touch()
-
-        result = analyzer.analyze_file(str(test_file), is_vbr=0.0)
-
-        assert result is not None
-        assert result.is_vbr == 0.0
-
-    def test_analyze_file_propagates_is_vbr_vbr(self, tmp_path, monkeypatch) -> None:
-        """SpectrumAnalyzer should propagate is_vbr=1.0 for VBR files."""
-        analyzer = SpectrumAnalyzer()
-
-        def mock_load(file_path, sr=None, mono=True):
-            return np.random.rand(44100), 44100
-
-        monkeypatch.setattr("bitrater.spectrum.librosa.load", mock_load)
-
-        test_file = tmp_path / "vbr_v0.mp3"
-        test_file.touch()
-
-        result = analyzer.analyze_file(str(test_file), is_vbr=1.0)
-
-        assert result is not None
-        assert result.is_vbr == 1.0
-
-
-class TestSpectralFeaturesIsVbr:
-    """Tests for is_vbr field in SpectralFeatures for VBR/CBR discrimination."""
-
-    def test_spectral_features_has_is_vbr_field(self) -> None:
-        """SpectralFeatures should have is_vbr field for VBR/CBR metadata."""
-        features = SpectralFeatures(
-            features=np.zeros(150, dtype=np.float32),
-            frequency_bands=[(16000.0, 16040.0)] * 150,
-            is_vbr=1.0,
-        )
-        assert hasattr(features, "is_vbr")
-        assert features.is_vbr == 1.0
-
-    def test_spectral_features_is_vbr_defaults_to_zero(self) -> None:
-        """SpectralFeatures.is_vbr should default to 0.0 (CBR/unknown)."""
-        features = SpectralFeatures(
-            features=np.zeros(150, dtype=np.float32),
-            frequency_bands=[(16000.0, 16040.0)] * 150,
-        )
-        assert features.is_vbr == 0.0
-
-    def test_spectral_features_is_vbr_accepts_float(self) -> None:
-        """is_vbr field should accept float values 0.0 or 1.0."""
-        # VBR file
-        vbr_features = SpectralFeatures(
-            features=np.zeros(150, dtype=np.float32),
-            frequency_bands=[(16000.0, 16040.0)] * 150,
-            is_vbr=1.0,
-        )
-        assert vbr_features.is_vbr == 1.0
-
-        # CBR file
-        cbr_features = SpectralFeatures(
-            features=np.zeros(150, dtype=np.float32),
-            frequency_bands=[(16000.0, 16040.0)] * 150,
-            is_vbr=0.0,
-        )
-        assert cbr_features.is_vbr == 0.0
-
-
 class TestSFB21AndRolloffFeatures:
     """Tests for SFB21 and rolloff feature fields in SpectralFeatures."""
 
@@ -248,17 +132,25 @@ class TestSFB21AndRolloffFeatures:
         assert features.rolloff_features.shape == (4,)
 
     def test_as_vector_includes_sfb21_and_rolloff(self) -> None:
-        """as_vector should include sfb21, rolloff, and discriminative features."""
+        """as_vector should include all feature groups."""
         features = SpectralFeatures(
             features=np.zeros(150, dtype=np.float32),
             frequency_bands=[(16000, 16040)] * 150,
             sfb21_features=np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float32),
             rolloff_features=np.array([7.0, 8.0, 9.0, 10.0], dtype=np.float32),
             discriminative_features=np.array([11.0, 12.0, 13.0, 14.0, 15.0, 16.0], dtype=np.float32),
+            temporal_features=np.array([17.0, 18.0, 19.0, 20.0], dtype=np.float32),
+            crossband_features=np.array([21.0, 22.0, 23.0, 24.0, 25.0, 26.0], dtype=np.float32),
+            cutoff_cleanliness_features=np.array([27.0, 28.0, 29.0, 30.0, 31.0], dtype=np.float32),
+            mdct_features=np.array(
+                [32.0, 33.0, 34.0, 35.0, 36.0, 37.0],
+                dtype=np.float32,
+            ),
         )
         vector = features.as_vector()
-        # 150 PSD + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative + 1 is_vbr = 173
-        assert vector.shape == (173,)
+        # 150 PSD + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative
+        # + 4 temporal + 6 crossband + 5 cutoff_cleanliness + 6 MDCT = 193
+        assert vector.shape == (193,)
         # SFB21 features at position 156-161 (after cutoff)
         assert vector[156] == 1.0
         assert vector[161] == 6.0
@@ -268,8 +160,18 @@ class TestSFB21AndRolloffFeatures:
         # Discriminative features at position 166-171
         assert vector[166] == 11.0
         assert vector[171] == 16.0
-        # is_vbr at the end
-        assert vector[172] == 0.0
+        # Temporal features at position 172-175
+        assert vector[172] == 17.0
+        assert vector[175] == 20.0
+        # Crossband features at position 176-181
+        assert vector[176] == 21.0
+        assert vector[181] == 26.0
+        # Cutoff cleanliness features at position 182-186
+        assert vector[182] == 27.0
+        assert vector[186] == 31.0
+        # MDCT features at position 187-192
+        assert vector[187] == 32.0
+        assert vector[192] == 37.0
 
 
 class TestExtractSFB21Features:

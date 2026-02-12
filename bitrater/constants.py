@@ -60,8 +60,8 @@ SPECTRAL_PARAMS = {
 CLASSIFIER_PARAMS = {
     "kernel": "poly",
     "degree": 2,  # d=2 from paper - CRITICAL
-    "gamma": 0.01,  # Optimized via grid search (was 1)
-    "C": 100,  # Optimized via grid search (was 1)
+    "gamma": "scale",  # Optimized via grid search
+    "C": 10,  # Optimized via grid search
     "coef0": 1,  # Standard for polynomial kernel
     "probability": True,  # For confidence scores
     "cache_size": 1000,
@@ -93,7 +93,7 @@ LOW_CONFIDENCE_THRESHOLD = 0.7  # Warn if confidence below this
 BITRATE_MISMATCH_FACTOR = 1.5  # Warn if stated bitrate > detected * this factor
 
 # ── Feature names and masking ──────────────────────────────────────────────
-# Ordered list of all 173 features in SpectralFeatures.as_vector() output.
+# Ordered list of all 193 features in SpectralFeatures.as_vector() output.
 FEATURE_NAMES: list[str] = (
     [f"psd_{i:03d}" for i in range(150)]
     + [
@@ -126,10 +126,38 @@ FEATURE_NAMES: list[str] = (
         "v2_energy_ratio_19k",
         "v2_sfb21_peak_ratio",
     ]
-    + ["is_vbr"]
+    + [
+        "temporal_artifact_variance",
+        "temporal_artifact_iqr",
+        "temporal_artifact_range",
+        "temporal_complexity_correlation",
+    ]
+    + [
+        "crossband_corr_veryhigh",
+        "crossband_corr_ultra",
+        "crossband_mod_veryhigh",
+        "crossband_mod_ultra",
+        "crossband_transient_veryhigh",
+        "crossband_corr_gradient",
+    ]
+    + [
+        "cutoff_clean_bleed_ratio",
+        "cutoff_clean_floor",
+        "cutoff_clean_variance",
+        "cutoff_clean_edge_gradient",
+        "cutoff_clean_correlation",
+    ]
+    + [
+        "mdct_zero_ratio_mean",
+        "mdct_zero_ratio_var",
+        "mdct_zero_ratio_iqr",
+        "mdct_sfb21_zero_mean",
+        "mdct_sfb21_zero_var",
+        "mdct_sfb21_lower_ratio",
+    ]
 )
 
-# Features to DROP from the 173-feature vector before SVM training/prediction.
+# Features to DROP from the 193-feature vector before SVM training/prediction.
 # Based on feature importance analysis (RF importance < 0.001 threshold):
 #   - PSD 0-18: below all encoder cutoffs (16.0-16.7 kHz)
 #   - PSD 19-24, 51, 53: low cross-class variance

@@ -163,8 +163,8 @@ The project has two packages:
 - Metadata consistency checking
 - Confidence scoring for all predictions
 
-**Feature Set (181 total features):**
-- 150 PSD bands + 6 cutoff + 8 temporal + 6 artifact + 6 SFB21 + 4 rolloff + 1 is_vbr
+**Feature Set (193 total features):**
+- 150 PSD bands + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative + 4 temporal + 6 crossband + 5 cutoff_cleanliness + 6 MDCT
 
 ### Database Fields
 

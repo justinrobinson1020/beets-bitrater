@@ -24,25 +24,18 @@ class TestQualityClassifier:
         svm = classifier.classifier
         assert svm.kernel == "poly"
         assert svm.degree == 2  # Critical parameter from paper
-        assert svm.gamma == 0.01
-        assert svm.C == 100
+        assert svm.gamma == "scale"
+        assert svm.C == 10
 
     def test_extract_features(self, sample_features: SpectralFeatures) -> None:
         """Test feature extraction returns full feature vector."""
         classifier = QualityClassifier()
         features = classifier._extract_features(sample_features)
 
-        # 150 PSD + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative + 1 is_vbr = 173
-        assert features.shape == (173,)
+        # 150 PSD + 6 cutoff + 6 SFB21 + 4 rolloff + 6 discriminative
+        # + 4 temporal + 6 crossband + 5 cutoff_cleanliness + 6 MDCT = 193
+        assert features.shape == (193,)
         assert features.dtype == np.float32
-
-    def test_extract_features_includes_is_vbr(self, sample_features: SpectralFeatures) -> None:
-        """Test that extracted features include is_vbr at the end."""
-        classifier = QualityClassifier()
-        features = classifier._extract_features(sample_features)
-
-        # Last feature should be the is_vbr value from SpectralFeatures
-        assert features[-1] == sample_features.is_vbr
 
     def test_train(self, training_features: tuple[list, list], temp_model_path) -> None:
         """Test classifier training."""
@@ -152,10 +145,10 @@ class TestFeatureMask:
 
         classifier.train(features_list, labels)
 
-        # Scaler should have seen 135 features (after mask)
-        assert classifier.scaler.n_features_in_ == 135
+        # Scaler should have seen 155 features (after mask: 193 - 38 dropped)
+        assert classifier.scaler.n_features_in_ == 155
         assert classifier.feature_mask is not None
-        assert len(classifier.feature_mask) == 135
+        assert len(classifier.feature_mask) == 155
 
     def test_feature_mask_applied_in_predict(
         self, training_features: tuple[list, list], sample_features: SpectralFeatures
@@ -190,11 +183,11 @@ class TestFeatureMask:
         assert pred1.format_type == pred2.format_type
 
     def test_feature_mask_count(self) -> None:
-        """Feature mask should select 135 features from 173."""
+        """Feature mask should select 155 features from 193."""
         from bitrater.constants import FEATURE_MASK_NAMES, FEATURE_NAMES
 
-        assert len(FEATURE_NAMES) == 173
-        assert len(FEATURE_MASK_NAMES) == 135
+        assert len(FEATURE_NAMES) == 193
+        assert len(FEATURE_MASK_NAMES) == 155
 
 
 class TestGridSearch:
@@ -244,9 +237,9 @@ class TestGridSearch:
         param_grid = {"kernel": ["poly"], "C": [1], "gamma": [1], "degree": [2]}
         classifier.grid_search(features_list, labels, param_grid=param_grid, cv=2)
 
-        # Feature mask should be set and scaler should see 135 features
+        # Feature mask should be set and scaler should see 155 features
         assert classifier.feature_mask is not None
-        assert classifier.scaler.n_features_in_ == 135
+        assert classifier.scaler.n_features_in_ == 155
 
 
 class TestBitrateClasses:

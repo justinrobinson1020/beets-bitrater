@@ -19,9 +19,13 @@ class SpectralFeatures:
     - 6 SFB21 features (ultra_ratio, continuity, flatness, flat_std, flat_iqr, flat_19_20k)
     - 4 rolloff features (slope, total_drop, ratio_early, ratio_late)
     - 6 discriminative features (128/V2 targeted ratios and energy)
-    - is_vbr metadata flag for VBR/CBR discrimination
+    - 4 temporal features (artifact_variance, artifact_iqr, artifact_range, complexity_correlation)
+    - 6 crossband features (corr/mod veryhigh+ultra, transient_veryhigh, corr_gradient)
+    - 5 cutoff cleanliness features (bleed_ratio, floor, variance, edge_gradient, correlation)
+    - 6 MDCT forensic features (zero ratios, SFB21 zeros)
 
-    Total: PSD(150) + cutoff(6) + SFB21(6) + rolloff(4) + discriminative(6) + is_vbr(1) = 173 features
+    Total: PSD(150) + cutoff(6) + SFB21(6) + rolloff(4) + discriminative(6)
+           + temporal(4) + crossband(6) + cutoff_cleanliness(5) + MDCT(6) = 193 features
     """
 
     features: np.ndarray  # Shape: (150,) - avg PSD per frequency band
@@ -30,7 +34,12 @@ class SpectralFeatures:
     sfb21_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
     rolloff_features: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
     discriminative_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
-    is_vbr: float = 0.0  # 1.0 if VBR, 0.0 if CBR/ABR/unknown (from file metadata)
+    temporal_features: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
+    crossband_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
+    cutoff_cleanliness_features: np.ndarray = field(
+        default_factory=lambda: np.zeros(5, dtype=np.float32)
+    )
+    mdct_features: np.ndarray = field(default_factory=lambda: np.zeros(6, dtype=np.float32))
 
     def as_vector(self) -> np.ndarray:
         """Flatten all features into a single vector for the classifier."""
@@ -40,7 +49,10 @@ class SpectralFeatures:
             np.asarray(self.sfb21_features, dtype=np.float32).flatten(),
             np.asarray(self.rolloff_features, dtype=np.float32).flatten(),
             np.asarray(self.discriminative_features, dtype=np.float32).flatten(),
-            np.array([self.is_vbr], dtype=np.float32),
+            np.asarray(self.temporal_features, dtype=np.float32).flatten(),
+            np.asarray(self.crossband_features, dtype=np.float32).flatten(),
+            np.asarray(self.cutoff_cleanliness_features, dtype=np.float32).flatten(),
+            np.asarray(self.mdct_features, dtype=np.float32).flatten(),
         ]
         return np.concatenate(base)
 
