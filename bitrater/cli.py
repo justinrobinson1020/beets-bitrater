@@ -28,7 +28,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
         analyzer.load_model(Path(args.model))
         logger.info(f"Loaded SVM model from {args.model}")
 
-    target = Path(args.target)
+    target = Path(args.target).resolve()
     if target.is_file():
         files = [target]
     elif target.is_dir():

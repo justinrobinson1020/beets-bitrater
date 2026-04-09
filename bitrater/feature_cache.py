@@ -1,9 +1,9 @@
 """Thread-safe cache system with improved concurrency handling."""
 
-import fcntl
 import hashlib
 import json
 import logging
+import os
 import queue
 import threading
 from contextlib import contextmanager
@@ -12,6 +12,24 @@ from datetime import datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
+
+# Cross-platform file locking
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_file(f):
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_file(f):
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_file(f):
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_file(f):
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 import numpy as np
 
@@ -67,18 +85,18 @@ class FeatureCache:
                 self._metadata_lock_file = open(lock_path, "w")
             lock_file = self._metadata_lock_file
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                _lock_file(lock_file)
                 yield
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _unlock_file(lock_file)
         else:
             # Fallback for other lock paths
             lock_file = open(lock_path, "w")
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                _lock_file(lock_file)
                 yield
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _unlock_file(lock_file)
                 lock_file.close()
 
     def _metadata_worker(self):
